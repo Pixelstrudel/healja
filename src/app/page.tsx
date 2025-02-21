@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Switch } from '@headlessui/react';
 import { TextArea } from '@/components/TextArea';
 import { Card, ListCard, SeverityIndicator } from '@/components/Card';
-import { TherapistResponse } from '@/lib/openrouter';
+import { TherapistResponse } from '@/lib/api';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import ReactMarkdown from 'react-markdown';
@@ -17,7 +17,12 @@ import {
   updateLastViewed,
   getFavoriteAnalyses,
   getRecentlyViewed,
-  SavedAnalysis
+  SavedAnalysis,
+  Tag,
+  getAllTags,
+  saveTag,
+  deleteTag,
+  getTagColor
 } from '@/lib/db';
 
 const getGradientColor = (severity: number) => {
@@ -70,6 +75,40 @@ const HighlightedText = ({ text, searchQuery }: { text: string; searchQuery: str
       )}
     </>
   );
+};
+
+const formatDate = (dateString: string) => {
+  const date = new Date(dateString);
+  
+  // For dates today, show time only
+  const today = new Date();
+  if (date.toDateString() === today.toDateString()) {
+    return `Today at ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}`;
+  }
+  
+  // For dates yesterday, show "Yesterday"
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (date.toDateString() === yesterday.toDateString()) {
+    return `Yesterday at ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}`;
+  }
+  
+  // For dates within the last week, show day name
+  const oneWeekAgo = new Date(today);
+  oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+  if (date > oneWeekAgo) {
+    return `${date.toLocaleDateString([], { weekday: 'long' })} at ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}`;
+  }
+  
+  // For all other dates, show full date
+  return date.toLocaleDateString([], { 
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  });
 };
 
 const calmingQuotes = [
@@ -141,6 +180,91 @@ function LoadingWave() {
   );
 }
 
+const SimilarEntries = ({ content, analyses, onLoad }: { content: string; analyses: SavedAnalysis[]; onLoad: (analysis: SavedAnalysis) => void }) => {
+  if (!content.trim() || content.length < 3) return null;
+
+  // Find similar analyses based on content
+  const similarAnalyses = analyses
+    .filter(analysis => {
+      const contentLower = content.toLowerCase();
+      const analysisContentLower = analysis.content.toLowerCase();
+      const words = contentLower.split(/\s+/).filter(word => word.length > 3);
+      
+      // Count how many significant words match
+      const matchingWords = words.filter(word => analysisContentLower.includes(word));
+      return matchingWords.length >= 2; // At least 2 significant words match
+    })
+    .slice(0, 3); // Show top 3 matches
+
+  if (similarAnalyses.length === 0) return null;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -10 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="mt-2 space-y-2"
+    >
+      <p className="text-sm text-nord-3 dark:text-nord-4">Similar past entries:</p>
+      <div className="space-y-2">
+        {similarAnalyses.map(analysis => (
+          <motion.div
+            key={analysis.id}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="p-3 bg-nord-6/50 dark:bg-nord-1/50 rounded-lg border border-nord-4/20 hover:border-nord-4/40 hover-border group"
+          >
+            <div className="flex items-start justify-between">
+              <div className="flex-1">
+                <h4 className="text-sm font-medium text-nord-0 dark:text-nord-6 mb-1">
+                  {analysis.summary}
+                </h4>
+                <p className="text-xs text-nord-3 dark:text-nord-4 line-clamp-2">
+                  {analysis.content}
+                </p>
+                {analysis.tags.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-2">
+                    {analysis.tags.map(tag => (
+                      <span
+                        key={tag}
+                        className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-nord-10/10 text-nord-10 dark:bg-nord-10/20 dark:text-nord-8"
+                      >
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="flex items-center space-x-2 ml-2">
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(analysis.content);
+                  }}
+                  className="opacity-0 group-hover:opacity-100 transition-opacity text-nord-10 dark:text-nord-8 hover:text-nord-9 p-1"
+                  title="Copy content"
+                >
+                  <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+                    <path d="M8 3a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1z" />
+                    <path d="M6 3a2 2 0 00-2 2v11a2 2 0 002 2h8a2 2 0 002-2V5a2 2 0 00-2-2 3 3 0 01-3 3H9a3 3 0 01-3-3z" />
+                  </svg>
+                </button>
+                <button
+                  onClick={() => onLoad(analysis)}
+                  className="opacity-0 group-hover:opacity-100 transition-opacity text-nord-10 dark:text-nord-8 hover:text-nord-9 p-1"
+                  title="Load entry"
+                >
+                  <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        ))}
+      </div>
+    </motion.div>
+  );
+};
+
 export default function Home() {
   const [content, setContent] = useState('');
   const [includeRebuttals, setIncludeRebuttals] = useState(false);
@@ -155,8 +279,25 @@ export default function Home() {
   const [exportingPdf, setExportingPdf] = useState<string | null>(null);
   const analysisRef = useRef<HTMLDivElement>(null);
   const [openExportMenu, setOpenExportMenu] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<'all' | 'favorites' | 'recent'>('all');
+  const [viewMode, setViewMode] = useState<'all' | 'favorites' | 'recent' | 'tags'>('all');
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const [editingTitleId, setEditingTitleId] = useState<string | null>(null);
+  const [editingTitle, setEditingTitle] = useState('');
+  const [editingTagsId, setEditingTagsId] = useState<string | null>(null);
+  const [newTag, setNewTag] = useState('');
+  const [tagSuggestions, setTagSuggestions] = useState<string[]>([]);
+  const [tags, setTags] = useState<Tag[]>([]);
+  const [editingTagColor, setEditingTagColor] = useState<string | null>(null);
+  const [newTagColor, setNewTagColor] = useState('#88C0D0');
+  const [editingAnalysisId, setEditingAnalysisId] = useState<string | null>(null);
+  const [editingAnalysisTag, setEditingAnalysisTag] = useState('');
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [showTagSuggestions, setShowTagSuggestions] = useState(false);
+  const [isTypingTag, setIsTypingTag] = useState(false);
+  const [tagInputStart, setTagInputStart] = useState(-1);
 
   // Load saved analyses and preferences on mount
   useEffect(() => {
@@ -209,12 +350,65 @@ export default function Home() {
     return () => document.removeEventListener('click', handleClickOutside);
   }, [openExportMenu]);
 
+  // Add this after the existing useEffect blocks
+  useEffect(() => {
+    const loadTagSuggestions = async () => {
+      const allAnalyses = await getAllAnalyses();
+      // Create a Map to track tag usage count
+      const tagUsageCount = new Map<string, number>();
+      
+      allAnalyses.forEach(analysis => {
+        analysis.tags.forEach(tag => {
+          tagUsageCount.set(tag, (tagUsageCount.get(tag) || 0) + 1);
+        });
+      });
+      
+      // Only keep tags that are used at least once
+      const activeTags = Array.from(tagUsageCount.keys());
+      setTagSuggestions(activeTags);
+    };
+    loadTagSuggestions();
+  }, []);
+
+  useEffect(() => {
+    const loadTags = async () => {
+      const allTags = await getAllTags();
+      setTags(allTags);
+    };
+    loadTags();
+  }, []);
+
   const saveAnalysis = async (content: string, response: TherapistResponse) => {
     try {
-      const newAnalysis = await dbSaveAnalysis(content, response);
+      // Add "What ifs" tag if rebuttals are included
+      const tags = response.rebuttals && response.rebuttals.length > 0 ? ['What ifs'] : [];
+      const newAnalysis = await dbSaveAnalysis(content, response, tags);
+      
+      // Update the local state
       setSavedAnalyses(prev => [newAnalysis, ...prev]);
+      
+      // Refresh the analyses list to ensure everything is up to date
+      const updatedAnalyses = await getAllAnalyses();
+      setSavedAnalyses(updatedAnalyses);
+      
+      // Also refresh the tag suggestions
+      const allTags = await getAllTags();
+      setTags(allTags);
+      
+      // Update tag suggestions
+      const tagUsageCount = new Map<string, number>();
+      updatedAnalyses.forEach(analysis => {
+        analysis.tags.forEach(tag => {
+          tagUsageCount.set(tag, (tagUsageCount.get(tag) || 0) + 1);
+        });
+      });
+      setTagSuggestions(Array.from(tagUsageCount.keys()));
+      
+      return newAnalysis;
     } catch (error) {
       console.error('Error saving analysis:', error);
+      setError('Failed to save analysis. Please try again.');
+      throw error;
     }
   };
 
@@ -431,16 +625,200 @@ ${rebuttal.response}`
     }
   };
 
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      
+      // Get supported MIME types for Whisper API
+      const mimeType = [
+        'audio/wav',
+        'audio/mp3',
+        'audio/mp4',
+        'audio/ogg',
+        'audio/webm'
+      ].find(type => MediaRecorder.isTypeSupported(type)) || '';
+
+      if (!mimeType) {
+        throw new Error('No supported audio format available');
+      }
+
+      console.log('Using MIME type:', mimeType);
+      
+      const mediaRecorder = new MediaRecorder(stream, {
+        mimeType: mimeType,
+        audioBitsPerSecond: 128000 // Set a reasonable bitrate
+      });
+      
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+          console.log('Audio chunk received:', event.data.size, 'bytes');
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        // Create blob with the recorded audio
+        const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
+        console.log('Recording stopped. Blob size:', audioBlob.size, 'bytes, type:', audioBlob.type);
+
+        // Convert to WAV if necessary
+        let finalBlob = audioBlob;
+        let finalType = mimeType;
+
+        // If not already in a supported format, convert to WAV
+        if (!['audio/wav', 'audio/mp3', 'audio/mp4', 'audio/ogg', 'audio/webm'].includes(mimeType)) {
+          try {
+            const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+            const audioContext = new AudioContextClass();
+            const audioData = await audioBlob.arrayBuffer();
+            const audioBuffer = await audioContext.decodeAudioData(audioData);
+            
+            // Convert to WAV
+            const wavBlob = await convertToWav(audioBuffer);
+            finalBlob = wavBlob;
+            finalType = 'audio/wav';
+            console.log('Converted audio to WAV format');
+          } catch (error) {
+            console.error('Error converting audio format:', error);
+            setError('Error processing audio. Please try again.');
+            return;
+          }
+        }
+
+        handleSubmitAudio(finalBlob);
+        stream.getTracks().forEach(track => track.stop());
+      };
+
+      mediaRecorder.start(1000); // Record in 1-second chunks
+      console.log('Started recording with mime type:', mediaRecorder.mimeType);
+      setIsRecording(true);
+    } catch (error) {
+      console.error('Error accessing microphone:', error);
+      setError(error instanceof Error 
+        ? `Microphone error: ${error.message}` 
+        : 'Could not access microphone. Please check your permissions.');
+    }
+  };
+
+  // Helper function to convert AudioBuffer to WAV format
+  const convertToWav = async (audioBuffer: AudioBuffer): Promise<Blob> => {
+    const numOfChannels = audioBuffer.numberOfChannels;
+    const length = audioBuffer.length * numOfChannels * 2;
+    const buffer = new ArrayBuffer(44 + length);
+    const view = new DataView(buffer);
+    
+    // Write WAV header
+    writeUTFBytes(view, 0, 'RIFF');
+    view.setUint32(4, 36 + length, true);
+    writeUTFBytes(view, 8, 'WAVE');
+    writeUTFBytes(view, 12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, numOfChannels, true);
+    view.setUint32(24, audioBuffer.sampleRate, true);
+    view.setUint32(28, audioBuffer.sampleRate * 2 * numOfChannels, true);
+    view.setUint16(32, numOfChannels * 2, true);
+    view.setUint16(34, 16, true);
+    writeUTFBytes(view, 36, 'data');
+    view.setUint32(40, length, true);
+
+    // Write audio data
+    const offset = 44;
+    const channelData = new Float32Array(audioBuffer.length);
+    let index = 0;
+    
+    for (let i = 0; i < audioBuffer.numberOfChannels; i++) {
+      audioBuffer.copyFromChannel(channelData, i);
+      for (let j = 0; j < channelData.length; j++) {
+        const sample = Math.max(-1, Math.min(1, channelData[j]));
+        view.setInt16(offset + index, sample < 0 ? sample * 0x8000 : sample * 0x7FFF, true);
+        index += 2;
+      }
+    }
+
+    return new Blob([buffer], { type: 'audio/wav' });
+  };
+
+  const writeUTFBytes = (view: DataView, offset: number, string: string) => {
+    for (let i = 0; i < string.length; i++) {
+      view.setUint8(offset + i, string.charCodeAt(i));
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+    }
+  };
+
+  const handleSubmitAudio = async (audioBlob: Blob) => {
+    if (!audioBlob) return;
+    if (audioBlob.size === 0) {
+      setError('No audio data recorded. Please try again.');
+      return;
+    }
+
+    console.log('Submitting audio blob:', {
+      size: audioBlob.size,
+      type: audioBlob.type
+    });
+
+    setIsLoading(true);
+    setError(null);
+
+    // Determine file extension based on MIME type
+    const fileExtension = audioBlob.type === 'audio/wav' ? '.wav'
+      : audioBlob.type === 'audio/mp3' ? '.mp3'
+      : audioBlob.type === 'audio/mp4' ? '.mp4'
+      : audioBlob.type === 'audio/ogg' ? '.ogg'
+      : audioBlob.type === 'audio/webm' ? '.webm'
+      : '.wav'; // default to .wav
+
+    const formData = new FormData();
+    formData.append('audio', audioBlob, `audio${fileExtension}`);
+
+    try {
+      const res = await fetch('/api/analyze', {
+        method: 'POST',
+        body: formData,
+      });
+
+      const data = await res.json();
+      console.log('Server response:', data);
+      
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to transcribe');
+      }
+      
+      if (data.transcription) {
+        setContent(data.transcription);
+      }
+    } catch (error) {
+      console.error('Error:', error);
+      setError(error instanceof Error ? error.message : 'An unexpected error occurred');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleSubmit = async () => {
     if (!content.trim() || isLoading) return;
 
     setIsLoading(true);
     setError(null);
+    
+    const formData = new FormData();
+    formData.append('content', content);
+    formData.append('includeRebuttals', String(includeRebuttals));
+
     try {
       const res = await fetch('/api/analyze', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content, includeRebuttals }),
+        body: formData,
       });
 
       const data = await res.json();
@@ -449,8 +827,8 @@ ${rebuttal.response}`
         throw new Error(data.error || 'Failed to analyze');
       }
       
-      setResponse(data);
-      await saveAnalysis(content, data);
+      setResponse(data.analysis);
+      await saveAnalysis(content, data.analysis);
     } catch (error) {
       console.error('Error:', error);
       setError(error instanceof Error ? error.message : 'An unexpected error occurred');
@@ -460,13 +838,137 @@ ${rebuttal.response}`
     }
   };
 
+  const handleTitleEdit = async (analysis: SavedAnalysis, newTitle: string) => {
+    try {
+      const updatedAnalysis = await dbSaveAnalysis(
+        analysis.content,
+        {
+          ...analysis.response,
+          summary: newTitle
+        },
+        analysis.tags,
+        analysis.id
+      );
+      setSavedAnalyses(prev => 
+        prev.map(a => a.id === analysis.id ? updatedAnalysis : a)
+      );
+      setEditingTitleId(null);
+    } catch (error) {
+      console.error('Error updating title:', error);
+      setError('Failed to update title. Please try again.');
+    }
+  };
+
+  const handleTagsEdit = async (analysis: SavedAnalysis, tags: string[]) => {
+    try {
+      const updatedAnalysis = await dbSaveAnalysis(
+        analysis.content,
+        analysis.response,
+        tags,
+        analysis.id
+      );
+      setSavedAnalyses(prev => 
+        prev.map(a => a.id === analysis.id ? updatedAnalysis : a)
+      );
+      setEditingTagsId(null);
+    } catch (error) {
+      console.error('Error updating tags:', error);
+      setError('Failed to update tags. Please try again.');
+    }
+  };
+
+  const handleRemoveTag = async (analysis: SavedAnalysis, tagToRemove: string) => {
+    const newTags = analysis.tags.filter(tag => tag !== tagToRemove);
+    await handleTagsEdit(analysis, newTags);
+    
+    // After removing the tag, check if it's still used in other analyses
+    const allAnalyses = await getAllAnalyses();
+    const isTagStillUsed = allAnalyses.some(a => 
+      a.id !== analysis.id && a.tags.includes(tagToRemove)
+    );
+    
+    // If the tag is no longer used anywhere, remove it from suggestions
+    if (!isTagStillUsed) {
+      setTagSuggestions(prev => prev.filter(tag => tag !== tagToRemove));
+    }
+  };
+
+  const handleAddTag = async (analysis: SavedAnalysis | null, tag: string) => {
+    if (!tag.trim()) return;
+    const trimmedTag = tag.trim();
+    
+    // If we're in the Tags view (analysis is null), just create the tag
+    if (!analysis) {
+      const tagExists = tags.some(t => t.name === trimmedTag);
+      if (!tagExists) {
+        const newTag = await saveTag({ name: trimmedTag, color: newTagColor });
+        setTags(prev => [...prev, newTag]);
+      }
+      setNewTag('');
+      return;
+    }
+
+    // Otherwise, add the tag to the specific analysis
+    const newTags = [...new Set([...analysis.tags, trimmedTag])];
+    await handleTagsEdit(analysis, newTags);
+    
+    // Add the new tag to suggestions and tag management if it's not already there
+    const tagExists = tags.some(t => t.name === trimmedTag);
+    if (!tagExists) {
+      const newTag = await saveTag({ name: trimmedTag, color: newTagColor });
+      setTags(prev => [...prev, newTag]);
+    }
+    setNewTag('');
+  };
+
+  const handleTagColorChange = async (tagName: string, color: string) => {
+    try {
+      const updatedTag = await saveTag({ name: tagName, color });
+      setTags(prev => prev.map(t => t.name === tagName ? updatedTag : t));
+      setEditingTagColor(null);
+    } catch (error) {
+      console.error('Error updating tag color:', error);
+      setError('Failed to update tag color. Please try again.');
+    }
+  };
+
+  const handleTagDelete = async (tagName: string) => {
+    try {
+      await deleteTag(tagName);
+      setTags(prev => prev.filter(t => t.name !== tagName));
+    } catch (error) {
+      console.error('Error deleting tag:', error);
+      setError('Failed to delete tag. Please try again.');
+    }
+  };
+
+  const handleTagClick = (tag: string) => {
+    setSelectedTags(prev => {
+      const isSelected = prev.includes(tag);
+      if (isSelected) {
+        return prev.filter(t => t !== tag);
+      } else {
+        return [...prev, tag];
+      }
+    });
+    setViewMode('all');
+  };
+
+  const handleClearTags = () => {
+    setSelectedTags([]);
+  };
+
   const filteredAnalyses = savedAnalyses.filter(analysis => {
     const searchLower = searchQuery.toLowerCase();
-    return (
-      analysis.content.toLowerCase().includes(searchLower) ||
+    const matchesSearch = analysis.content.toLowerCase().includes(searchLower) ||
       analysis.summary.toLowerCase().includes(searchLower) ||
-      analysis.tags.some(tag => tag.toLowerCase().includes(searchLower))
-    );
+      analysis.tags.some(tag => tag.toLowerCase().includes(searchLower));
+
+    // If there are selected tags, ensure all of them are present in the analysis
+    const matchesTags = selectedTags.length === 0 || 
+      selectedTags.every(tag => analysis.tags.includes(tag));
+
+    return matchesSearch && matchesTags;
   });
 
   return (
@@ -541,25 +1043,144 @@ ${rebuttal.response}`
                   >
                     Recent
                   </button>
+                  <button
+                    onClick={() => setViewMode('tags')}
+                    className={`px-3 py-1 rounded text-sm ${
+                      viewMode === 'tags'
+                        ? 'bg-nord-10 text-nord-6'
+                        : 'text-nord-10 hover:bg-nord-10/10 hover-bg'
+                    }`}
+                  >
+                    Tags
+                  </button>
                 </div>
               </div>
               <div className="relative">
                 <input
                   type="text"
                   value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search analyses..."
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setSearchQuery(value);
+                    
+                    // Check if we're typing a tag
+                    if (value.includes('#')) {
+                      const lastHashIndex = value.lastIndexOf('#');
+                      if (lastHashIndex >= 0) {
+                        setIsTypingTag(true);
+                        setTagInputStart(lastHashIndex);
+                        setShowTagSuggestions(true);
+                      }
+                    } else {
+                      setIsTypingTag(false);
+                      setTagInputStart(-1);
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && isTypingTag && tagInputStart >= 0) {
+                      e.preventDefault();
+                      const tagText = searchQuery.slice(tagInputStart + 1).trim();
+                      if (tagText) {
+                        const matchingTag = tags.find(t => 
+                          t.name.toLowerCase().startsWith(tagText.toLowerCase())
+                        );
+                        if (matchingTag) {
+                          handleTagClick(matchingTag.name);
+                          setSearchQuery('');
+                          setIsTypingTag(false);
+                          setTagInputStart(-1);
+                          setShowTagSuggestions(false);
+                        }
+                      }
+                    }
+                  }}
+                  onFocus={() => {
+                    if (searchQuery.includes('#')) {
+                      setShowTagSuggestions(true);
+                    }
+                  }}
+                  onBlur={() => setTimeout(() => setShowTagSuggestions(false), 200)}
+                  placeholder="Search analyses or type # to search tags..."
                   className="w-full px-4 py-2 bg-nord-6 dark:bg-nord-1 text-nord-0 dark:text-nord-6 border border-nord-4 dark:border-nord-3 rounded-lg focus:ring-2 focus:ring-nord-10 focus:border-transparent placeholder-nord-3 dark:placeholder-nord-4 transition-all"
                 />
                 {searchQuery && (
                   <button
-                    onClick={() => setSearchQuery('')}
+                    onClick={() => {
+                      setSearchQuery('');
+                      setIsTypingTag(false);
+                      setTagInputStart(-1);
+                      setShowTagSuggestions(false);
+                    }}
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-nord-3 dark:text-nord-4 hover:text-nord-0 dark:hover:text-nord-6 transition-colors"
                   >
                     ✕
                   </button>
                 )}
+
+                {/* Tag Suggestions Dropdown */}
+                {showTagSuggestions && isTypingTag && (
+                  <div className="absolute left-0 right-0 mt-1 bg-nord-6 dark:bg-nord-1 rounded-lg shadow-lg border border-nord-4/20 z-50 max-h-48 overflow-y-auto">
+                    {tags
+                      .filter(tag => {
+                        const searchTerm = searchQuery.slice(tagInputStart + 1).toLowerCase();
+                        return tag.name.toLowerCase().includes(searchTerm) &&
+                          !selectedTags.includes(tag.name);
+                      })
+                      .map(tag => (
+                        <button
+                          key={tag.name}
+                          onClick={() => {
+                            handleTagClick(tag.name);
+                            setSearchQuery('');
+                            setIsTypingTag(false);
+                            setTagInputStart(-1);
+                            setShowTagSuggestions(false);
+                          }}
+                          className="w-full px-4 py-2 text-left hover:bg-nord-5 dark:hover:bg-nord-2 flex items-center space-x-2"
+                        >
+                          <div
+                            className="w-4 h-4 rounded"
+                            style={{ backgroundColor: tag.color }}
+                          />
+                          <span className="text-nord-0 dark:text-nord-6">{tag.name}</span>
+                          <span className="text-nord-3 dark:text-nord-4 text-sm ml-auto">
+                            {savedAnalyses.filter(a => a.tags.includes(tag.name)).length} analyses
+                          </span>
+                        </button>
+                      ))}
+                  </div>
+                )}
               </div>
+
+              {/* Active Tag Filters */}
+              {selectedTags.length > 0 && (
+                <div className="flex flex-wrap items-center gap-2 pt-2">
+                  <span className="text-sm text-nord-3 dark:text-nord-4">Filtered by:</span>
+                  {selectedTags.map(tagName => {
+                    const tag = tags.find(t => t.name === tagName);
+                    return (
+                      <button
+                        key={tagName}
+                        onClick={() => handleTagClick(tagName)}
+                        style={{
+                          backgroundColor: tag ? tag.color : undefined,
+                          color: '#fff'
+                        }}
+                        className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium shadow-sm transition-colors"
+                      >
+                        {tagName}
+                        <span className="ml-1">×</span>
+                      </button>
+                    );
+                  })}
+                  <button
+                    onClick={handleClearTags}
+                    className="px-2 py-1 text-sm text-nord-11 hover:text-nord-11/80 transition-colors"
+                  >
+                    Clear all
+                  </button>
+                </div>
+              )}
             </div>
 
             {isLoadingHistory ? (
@@ -582,6 +1203,87 @@ ${rebuttal.response}`
                   ))}
                 </div>
               </div>
+            ) : viewMode === 'tags' ? (
+              <div className="mt-4 space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {tags.map((tag) => (
+                    <motion.div
+                      key={tag.name}
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      className="p-4 bg-nord-6 dark:bg-nord-1 rounded-lg border border-nord-4/20 hover:border-nord-4/40 hover-border shadow-sm"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-3">
+                          {editingTagColor === tag.name ? (
+                            <input
+                              type="color"
+                              value={tag.color}
+                              onChange={(e) => handleTagColorChange(tag.name, e.target.value)}
+                              onBlur={() => setEditingTagColor(null)}
+                              className="w-8 h-8 rounded cursor-pointer bg-transparent [&::-webkit-color-swatch]:rounded [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:border-none"
+                            />
+                          ) : (
+                            <div
+                              onClick={() => setEditingTagColor(tag.name)}
+                              style={{ backgroundColor: tag.color }}
+                              className="w-8 h-8 rounded cursor-pointer"
+                              title="Click to change color"
+                            />
+                          )}
+                          <span className="font-medium text-nord-0 dark:text-nord-6">
+                            {tag.name}
+                          </span>
+                        </div>
+                        {tag.name !== 'What ifs' && (
+                          <button
+                            onClick={() => handleTagDelete(tag.name)}
+                            className="text-nord-11 hover:text-nord-11/80 transition-colors"
+                            title="Delete tag"
+                          >
+                            <svg className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
+                              <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                            </svg>
+                          </button>
+                        )}
+                      </div>
+                      <div className="mt-2 text-sm text-nord-3 dark:text-nord-4">
+                        Used in {savedAnalyses.filter(a => a.tags.includes(tag.name)).length} analyses
+                      </div>
+                    </motion.div>
+                  ))}
+                </div>
+                
+                <div className="mt-6">
+                  <h3 className="text-lg font-medium text-nord-0 dark:text-nord-6 mb-2">Add New Tag</h3>
+                  <div className="flex items-center space-x-3">
+                    <input
+                      type="color"
+                      value={newTagColor}
+                      onChange={(e) => setNewTagColor(e.target.value)}
+                      className="w-10 h-10 rounded cursor-pointer bg-transparent [&::-webkit-color-swatch]:rounded [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:border-none"
+                    />
+                    <input
+                      type="text"
+                      value={newTag}
+                      onChange={(e) => setNewTag(e.target.value)}
+                      placeholder="Enter tag name..."
+                      className="flex-1 px-4 py-2 bg-nord-6 dark:bg-nord-1 text-nord-0 dark:text-nord-6 border border-nord-4 dark:border-nord-3 rounded-lg focus:ring-2 focus:ring-nord-10 focus:border-transparent"
+                    />
+                    <button
+                      onClick={() => {
+                        if (newTag.trim()) {
+                          handleAddTag(null, newTag);
+                        }
+                      }}
+                      disabled={!newTag.trim()}
+                      className="px-4 py-2 rounded-lg bg-nord-10 text-nord-6 hover:bg-nord-9 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Add Tag
+                    </button>
+                  </div>
+                </div>
+              </div>
             ) : filteredAnalyses.length > 0 ? (
               <div className="space-y-4">
                 {filteredAnalyses.map((analysis) => (
@@ -589,98 +1291,237 @@ ${rebuttal.response}`
                     key={analysis.id}
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
-                    className="p-4 bg-nord-6 dark:bg-nord-1 rounded-lg border border-nord-4/20 hover:border-nord-4/40 hover-border"
+                    className="p-6 bg-nord-6 dark:bg-nord-1 rounded-lg border border-nord-4/20 hover:border-nord-4/40 hover-border shadow-sm"
                   >
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center space-x-3">
-                        <motion.button
-                          onClick={() => handleToggleFavorite(analysis.id)}
-                          className={`text-lg ${
-                            analysis.favorite ? 'text-nord-13' : 'text-nord-3 dark:text-nord-4'
-                          } hover:scale-110 transition-transform`}
-                          whileHover={{ scale: 1.1 }}
-                          whileTap={{ scale: 0.95 }}
-                        >
-                          {analysis.favorite ? '★' : '☆'}
-                        </motion.button>
+                    <div className="space-y-4">
+                      {/* Header Section */}
+                      <div className="flex items-start justify-between">
                         <div className="flex items-center space-x-3">
-                          <div className={`px-2 py-0.5 rounded-full text-xs font-medium ${getGradientColor(analysis.response.severity)}`}>
-                            Level {analysis.response.severity}
-                          </div>
-                          <p className="font-medium text-nord-0 dark:text-nord-6">{analysis.summary}</p>
-                        </div>
-                      </div>
-                      <div className="space-x-2">
-                        <div className="relative inline-block export-menu-container">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setOpenExportMenu(openExportMenu === analysis.id ? null : analysis.id);
-                            }}
-                            className="px-3 py-1 rounded text-sm text-nord-10 hover:bg-nord-10/10 hover-bg"
-                            title="Export options"
+                          <motion.button
+                            onClick={() => handleToggleFavorite(analysis.id)}
+                            className={`text-lg ${
+                              analysis.favorite ? 'text-nord-13' : 'text-nord-3 dark:text-nord-4'
+                            } hover:scale-110 transition-transform`}
+                            whileHover={{ scale: 1.1 }}
+                            whileTap={{ scale: 0.95 }}
                           >
-                            Export ▾
-                          </button>
-                          <AnimatePresence>
-                            {openExportMenu === analysis.id && (
-                              <motion.div
-                                initial={{ opacity: 0, y: -5 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                exit={{ opacity: 0, y: -5 }}
-                                className="absolute right-0 mt-1 w-32 bg-nord-6 dark:bg-nord-1 rounded-lg shadow-lg border border-nord-4/20 z-50"
+                            {analysis.favorite ? '★' : '☆'}
+                          </motion.button>
+                          <div className="flex flex-col">
+                            {editingTitleId === analysis.id ? (
+                              <form
+                                onSubmit={(e) => {
+                                  e.preventDefault();
+                                  handleTitleEdit(analysis, editingTitle);
+                                }}
+                                className="flex items-center"
                               >
-                                <button
-                                  onClick={() => {
-                                    downloadMarkdown(analysis);
-                                    setOpenExportMenu(null);
+                                <input
+                                  type="text"
+                                  value={editingTitle}
+                                  onChange={(e) => setEditingTitle(e.target.value)}
+                                  onBlur={() => {
+                                    if (editingTitle !== analysis.summary) {
+                                      handleTitleEdit(analysis, editingTitle);
+                                    } else {
+                                      setEditingTitleId(null);
+                                    }
                                   }}
-                                  className="w-full px-4 py-2 text-left text-sm hover:bg-nord-5 dark:hover:bg-nord-2 text-nord-0 dark:text-nord-6 rounded-t-lg"
-                                >
-                                  Markdown
-                                </button>
-                                <button
+                                  autoFocus
+                                  className="px-2 py-1 rounded bg-nord-5 dark:bg-nord-2 text-nord-0 dark:text-nord-6 border border-nord-4 dark:border-nord-3 focus:ring-2 focus:ring-nord-10 focus:border-transparent font-medium w-full"
+                                />
+                              </form>
+                            ) : (
+                              <div className="flex items-center space-x-2">
+                                <h3
+                                  className="font-medium text-nord-0 dark:text-nord-6 cursor-pointer hover:text-nord-10 dark:hover:text-nord-8 transition-colors"
                                   onClick={() => {
-                                    downloadPdf(analysis);
-                                    setOpenExportMenu(null);
+                                    setEditingTitleId(analysis.id);
+                                    setEditingTitle(analysis.summary);
                                   }}
-                                  className="w-full px-4 py-2 text-left text-sm hover:bg-nord-5 dark:hover:bg-nord-2 text-nord-0 dark:text-nord-6 border-t border-nord-4/20 rounded-b-lg"
+                                  title="Click to edit title"
                                 >
-                                  PDF
-                                </button>
-                              </motion.div>
+                                  {analysis.summary}
+                                </h3>
+                              </div>
                             )}
-                          </AnimatePresence>
+                            <div className="flex items-center space-x-2 mt-1 text-xs text-nord-3 dark:text-nord-4">
+                              <span>Created {formatDate(analysis.createdAt)}</span>
+                              {analysis.updatedAt !== analysis.createdAt && (
+                                <span>• Updated {formatDate(analysis.updatedAt)}</span>
+                              )}
+                              <span>• Viewed {formatDate(analysis.lastViewed)}</span>
+                            </div>
+                          </div>
                         </div>
-                        <button
-                          onClick={() => loadAnalysis(analysis)}
-                          className="px-3 py-1 rounded text-sm text-nord-10 hover:bg-nord-10/10 hover-bg"
-                        >
-                          Load
-                        </button>
-                        <button
-                          onClick={() => setDeletingId(analysis.id)}
-                          className="px-3 py-1 rounded text-sm text-nord-11 hover:bg-nord-11/10 hover-bg"
-                        >
-                          Delete
-                        </button>
+                        <div className="flex items-center space-x-2">
+                          <div className="relative inline-block export-menu-container">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setOpenExportMenu(openExportMenu === analysis.id ? null : analysis.id);
+                              }}
+                              className="px-4 py-1.5 rounded-md text-sm bg-nord-10/10 text-nord-10 hover:bg-nord-10/20 font-medium transition-colors flex items-center space-x-1"
+                              title="Export options"
+                            >
+                              <span>Export</span>
+                              <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+                                <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+                              </svg>
+                            </button>
+                            <AnimatePresence>
+                              {openExportMenu === analysis.id && (
+                                <motion.div
+                                  initial={{ opacity: 0, y: -5 }}
+                                  animate={{ opacity: 1, y: 0 }}
+                                  exit={{ opacity: 0, y: -5 }}
+                                  className="absolute right-0 mt-1 w-36 bg-nord-6 dark:bg-nord-1 rounded-lg shadow-lg border border-nord-4/20 z-50 overflow-hidden"
+                                >
+                                  <button
+                                    onClick={() => {
+                                      downloadMarkdown(analysis);
+                                      setOpenExportMenu(null);
+                                    }}
+                                    className="w-full px-4 py-2 text-left text-sm hover:bg-nord-5 dark:hover:bg-nord-2 text-nord-0 dark:text-nord-6 flex items-center space-x-2"
+                                  >
+                                    <span className="text-nord-10">📝</span>
+                                    <span>Markdown</span>
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      downloadPdf(analysis);
+                                      setOpenExportMenu(null);
+                                    }}
+                                    className="w-full px-4 py-2 text-left text-sm hover:bg-nord-5 dark:hover:bg-nord-2 text-nord-0 dark:text-nord-6 border-t border-nord-4/20 flex items-center space-x-2"
+                                  >
+                                    <span className="text-nord-10">📄</span>
+                                    <span>PDF</span>
+                                  </button>
+                                </motion.div>
+                              )}
+                            </AnimatePresence>
+                          </div>
+                          <button
+                            onClick={() => loadAnalysis(analysis)}
+                            className="px-4 py-1.5 rounded-md text-sm bg-nord-10 text-nord-6 hover:bg-nord-9 font-medium transition-colors flex items-center space-x-1"
+                          >
+                            <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+                              <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clipRule="evenodd" />
+                            </svg>
+                            <span>Load</span>
+                          </button>
+                          <button
+                            onClick={() => setDeletingId(analysis.id)}
+                            className="px-4 py-1.5 rounded-md text-sm bg-nord-11/10 text-nord-11 hover:bg-nord-11/20 font-medium transition-colors flex items-center space-x-1"
+                          >
+                            <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+                              <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                            </svg>
+                            <span>Delete</span>
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                    <div className="flex justify-between items-baseline">
-                      <p className="text-nord-3 dark:text-nord-4 text-sm flex-1 mr-4 italic">
-                        <HighlightedText 
-                          text={getMatchContext(
-                            searchQuery.toLowerCase().includes(analysis.summary.toLowerCase())
-                              ? analysis.summary
-                              : analysis.content,
-                            searchQuery
-                          )}
-                          searchQuery={searchQuery}
-                        />
-                      </p>
-                      <span className="text-xs text-nord-3 dark:text-nord-4 whitespace-nowrap">
-                        {new Date(analysis.createdAt).toLocaleString()}
-                      </span>
+
+                      {/* Tags Section */}
+                      <div className="flex flex-wrap items-center gap-2">
+                        {analysis.tags.map((tag) => {
+                          const tagData = tags.find(t => t.name === tag);
+                          return (
+                            <button
+                              key={tag}
+                              onClick={() => handleTagClick(tag)}
+                              style={{
+                                backgroundColor: tagData ? `${tagData.color}20` : undefined,
+                                borderColor: tagData ? `${tagData.color}30` : undefined,
+                                color: tagData ? tagData.color : undefined
+                              }}
+                              className="inline-flex items-center px-3 py-1.5 rounded-full text-sm font-medium border shadow-sm hover:opacity-80 transition-opacity"
+                            >
+                              {tag}
+                              {!tag.startsWith('Level ') && tag !== 'What ifs' && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleRemoveTag(analysis, tag);
+                                  }}
+                                  className="ml-2 hover:text-nord-11 transition-colors"
+                                  title="Remove tag"
+                                >
+                                  ×
+                                </button>
+                              )}
+                            </button>
+                          );
+                        })}
+                        <form
+                          onSubmit={(e) => {
+                            e.preventDefault();
+                            if (editingAnalysisId === analysis.id) {
+                              handleAddTag(analysis, editingAnalysisTag);
+                              setEditingAnalysisTag('');
+                              setEditingAnalysisId(null);
+                            }
+                          }}
+                          className="inline-flex items-center"
+                        >
+                          <input
+                            type="text"
+                            value={editingAnalysisId === analysis.id ? editingAnalysisTag : ''}
+                            onChange={(e) => {
+                              setEditingAnalysisId(analysis.id);
+                              setEditingAnalysisTag(e.target.value);
+                            }}
+                            onBlur={() => {
+                              if (!editingAnalysisTag) {
+                                setEditingAnalysisId(null);
+                              }
+                            }}
+                            placeholder="Add tag..."
+                            className="px-3 py-1.5 text-sm rounded-full bg-nord-5 dark:bg-nord-2 text-nord-0 dark:text-nord-6 border border-nord-4 dark:border-nord-3 focus:ring-2 focus:ring-nord-10 focus:border-transparent placeholder-nord-3 dark:placeholder-nord-4 w-28"
+                          />
+                          <div className="relative">
+                            {tagSuggestions.length > 0 && editingAnalysisId === analysis.id && editingAnalysisTag && (
+                              <div className="absolute left-0 mt-1 w-32 bg-nord-6 dark:bg-nord-1 rounded-lg shadow-lg border border-nord-4/20 z-50">
+                                {tagSuggestions
+                                  .filter(tag => 
+                                    tag.toLowerCase().includes(editingAnalysisTag.toLowerCase()) &&
+                                    !analysis.tags.includes(tag)
+                                  )
+                                  .slice(0, 5)
+                                  .map(tag => (
+                                    <button
+                                      key={tag}
+                                      onClick={() => {
+                                        handleAddTag(analysis, tag);
+                                        setEditingAnalysisTag('');
+                                        setEditingAnalysisId(null);
+                                      }}
+                                      className="w-full px-2 py-1 text-left text-sm hover:bg-nord-5 dark:hover:bg-nord-2 text-nord-0 dark:text-nord-6"
+                                    >
+                                      {tag}
+                                    </button>
+                                  ))}
+                              </div>
+                            )}
+                          </div>
+                        </form>
+                      </div>
+
+                      {/* Content Preview */}
+                      <div className="mt-2">
+                        <p className="text-nord-3 dark:text-nord-4 text-sm line-clamp-3 relative after:absolute after:bottom-0 after:right-0 after:h-6 after:w-12 after:bg-gradient-to-l after:from-nord-6 dark:after:from-nord-1 after:to-transparent">
+                          <HighlightedText 
+                            text={getMatchContext(
+                              searchQuery.toLowerCase().includes(analysis.summary.toLowerCase())
+                                ? analysis.summary
+                                : analysis.content,
+                              searchQuery,
+                              300
+                            )}
+                            searchQuery={searchQuery}
+                          />
+                        </p>
+                      </div>
                     </div>
                   </motion.div>
                 ))}
@@ -742,13 +1583,43 @@ ${rebuttal.response}`
         </AnimatePresence>
 
         <div className="space-y-6">
-          <TextArea
-            value={content}
-            onChange={setContent}
-            disabled={isLoading}
-            placeholder="What's on your mind? Share your thoughts and concerns..."
-            className="bg-nord-5 dark:bg-nord-1 text-nord-0 dark:text-nord-4 border-nord-4 dark:border-nord-3 focus:ring-nord-10 placeholder-nord-3 dark:placeholder-nord-4"
-          />
+          <div className="relative">
+            <TextArea
+              value={content}
+              onChange={setContent}
+              disabled={isLoading || isRecording}
+              placeholder={isRecording ? "Recording... Speak your thoughts..." : "What's on your mind? Share your thoughts and concerns..."}
+              className="bg-nord-5 dark:bg-nord-1 text-nord-0 dark:text-nord-4 border border-nord-4 dark:border-nord-3 focus:ring-nord-10 placeholder-nord-3 dark:placeholder-nord-4"
+            />
+            <button
+              onClick={isRecording ? stopRecording : startRecording}
+              disabled={isLoading}
+              className={`absolute right-4 bottom-4 p-2 rounded-full transition-all ${
+                isRecording
+                  ? 'bg-nord-11 text-nord-6 animate-pulse'
+                  : 'bg-nord-10 text-nord-6 hover:bg-nord-9 hover-bg'
+              } ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
+              title={isRecording ? "Stop recording" : "Start voice recording"}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                {isRecording ? (
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z M16 12H8" />
+                ) : (
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                )}
+              </svg>
+            </button>
+          </div>
+
+          {!response && !isLoading && (
+            <SimilarEntries 
+              content={content} 
+              analyses={savedAnalyses} 
+              onLoad={async (analysis) => {
+                await loadAnalysis(analysis);
+              }} 
+            />
+          )}
 
           <div className="flex items-center justify-between">
             <Switch.Group>
@@ -770,16 +1641,16 @@ ${rebuttal.response}`
                   />
                 </Switch>
                 <Switch.Label className="ml-3 text-sm text-nord-0 dark:text-nord-6">
-                  Include "What if" scenarios and rebuttals
+                  Include "What if" scenarios
                 </Switch.Label>
               </div>
             </Switch.Group>
 
             <button
               onClick={handleSubmit}
-              disabled={!content.trim() || isLoading}
+              disabled={!content.trim() || isLoading || isRecording}
               className={`px-6 py-2 rounded-lg font-medium transition-all ${
-                !content.trim() || isLoading
+                !content.trim() || isLoading || isRecording
                   ? 'bg-nord-3/30 dark:bg-nord-3/20 text-nord-3 dark:text-nord-4/50 cursor-not-allowed'
                   : 'bg-nord-10 text-nord-6 hover:bg-nord-9 hover-bg'
               }`}
@@ -968,7 +1839,7 @@ ${rebuttal.response}`
             </div>
           )}
         </div>
-    </div>
+      </div>
     </main>
   );
 }

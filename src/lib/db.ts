@@ -1,5 +1,10 @@
-import { openDB, DBSchema, IDBPDatabase } from 'idb';
-import { TherapistResponse } from './openrouter';
+import Dexie, { Table } from 'dexie';
+import { TherapistResponse } from './api';
+
+export interface Tag {
+  name: string;
+  color: string;
+}
 
 export interface SavedAnalysis {
   id: string;
@@ -8,182 +13,284 @@ export interface SavedAnalysis {
   summary: string;
   response: TherapistResponse;
   tags: string[];
-  favorite: boolean;
+  favorite: boolean | number;
   lastViewed: string;
   createdAt: string;
   updatedAt: string;
 }
 
-const DB_NAME = 'healja-db';
-const DB_VERSION = 1;
+class HealjaDatabase extends Dexie {
+  analyses!: Table<SavedAnalysis>;
+  tags!: Table<Tag>;
 
-let dbPromise: Promise<IDBPDatabase<unknown>> | null = null;
+  constructor() {
+    super('healja-db');
+    
+    this.version(2).stores({
+      analyses: 'id, date, lastViewed, favorite, updatedAt, *tags',
+      tags: 'name'
+    });
 
-function getDB() {
-  if (!dbPromise) {
-    dbPromise = openDB(DB_NAME, DB_VERSION, {
-      upgrade(db) {
-        const store = db.createObjectStore('analyses', { keyPath: 'id' });
-        store.createIndex('by-date', 'date');
-        store.createIndex('by-lastViewed', 'lastViewed');
-        store.createIndex('by-favorite', 'favorite');
-        store.createIndex('by-tags', 'tags', { multiEntry: true });
-      },
+    // Modify hooks to return new objects instead of modifying existing ones
+    this.analyses.hook('reading', (obj: SavedAnalysis | null) => {
+      if (!obj) return obj;
+      return {
+        ...obj,
+        favorite: !!obj.favorite
+      };
+    });
+
+    this.analyses.hook('creating', (primKey: string, obj: SavedAnalysis | null) => {
+      if (!obj) return obj;
+      return {
+        ...obj,
+        favorite: obj.favorite ? 1 : 0
+      };
+    });
+
+    this.analyses.hook('updating', (modifications: Partial<SavedAnalysis> | null) => {
+      if (!modifications) return modifications;
+      const mods = { ...modifications };
+      if (mods.hasOwnProperty('favorite')) {
+        mods.favorite = mods.favorite ? 1 : 0;
+      }
+      return mods;
     });
   }
-  return dbPromise;
+
+  async initialize(): Promise<void> {
+    const tagCount = await this.tags.count();
+    if (tagCount === 0) {
+      // Add default tags
+      await this.tags.bulkPut([
+        {
+          name: 'What ifs',
+          color: '#88C0D0'
+        },
+        {
+          name: 'Level 1',
+          color: '#A3BE8C' // nord-14 (Green)
+        },
+        {
+          name: 'Level 2',
+          color: '#A3BE8C' // nord-14 (Green to Yellow)
+        },
+        {
+          name: 'Level 3',
+          color: '#EBCB8B' // nord-13 (Yellow)
+        },
+        {
+          name: 'Level 4',
+          color: '#D08770' // nord-12 (Orange)
+        },
+        {
+          name: 'Level 5',
+          color: '#BF616A' // nord-11 (Red)
+        }
+      ]);
+    }
+  }
 }
+
+const db = new HealjaDatabase();
+db.initialize().catch(console.error);
 
 export async function saveAnalysis(
   content: string,
   response: TherapistResponse,
-  tags: string[] = []
+  tags: string[] = [],
+  existingId?: string
 ): Promise<SavedAnalysis> {
-  const db = await getDB();
   const now = new Date().toISOString();
   
+  // Add severity level tag and What ifs tag if needed
+  const severityTag = `Level ${Math.round(response.severity)}`;
+  const whatIfsTag = response.rebuttals && response.rebuttals.length > 0 ? ['What ifs'] : [];
+  const allTags = Array.from(new Set([...tags, severityTag, ...whatIfsTag]));
+  
   const analysis: SavedAnalysis = {
-    id: Date.now().toString(),
+    id: existingId || Date.now().toString(),
     date: new Date().toLocaleString(),
     content,
-    summary: response.summary,
+    summary: response.summary || 'Untitled Analysis',
     response,
-    tags,
+    tags: allTags,
     favorite: false,
     lastViewed: now,
     createdAt: now,
     updatedAt: now,
   };
 
-  await db.put('analyses', analysis);
-  return analysis;
+  if (existingId) {
+    const existing = await db.analyses.get(existingId);
+    if (existing) {
+      analysis.favorite = existing.favorite;
+      analysis.createdAt = existing.createdAt || now;
+    }
+  }
+
+  try {
+    await db.transaction('rw', db.analyses, db.tags, async () => {
+      await db.analyses.put(analysis);
+      
+      // Ensure all tags exist in the tags store
+      for (const tag of allTags) {
+        const existingTag = await db.tags.get(tag);
+        if (!existingTag) {
+          await db.tags.put({
+            name: tag,
+            color: '#88C0D0' // Default color for new tags
+          });
+        }
+      }
+    });
+    
+    return analysis;
+  } catch (error) {
+    console.error('Database error while saving analysis:', error);
+    throw new Error('Failed to save analysis to database');
+  }
 }
 
 export async function getAllAnalyses(limit = 50, offset = 0): Promise<SavedAnalysis[]> {
-  const db = await getDB();
-  const tx = db.transaction('analyses', 'readonly');
-  const store = tx.objectStore('analyses');
-  const analyses = await store.getAll();
-  return analyses.reverse().slice(offset, offset + limit);
+  try {
+    return await db.analyses
+      .orderBy('updatedAt')
+      .reverse()
+      .offset(offset)
+      .limit(limit)
+      .toArray();
+  } catch (error) {
+    console.error('Error fetching analyses:', error);
+    return [];
+  }
 }
 
 export async function getFavoriteAnalyses(): Promise<SavedAnalysis[]> {
-  const db = await getDB();
-  const tx = db.transaction('analyses', 'readonly');
-  const store = tx.objectStore('analyses');
-  const analyses = await store.getAll();
-  return analyses.filter(analysis => analysis.favorite).reverse();
+  return await db.analyses.where('favorite').equals(1).reverse().toArray();
 }
 
 export async function getRecentlyViewed(limit = 10): Promise<SavedAnalysis[]> {
-  const db = await getDB();
-  const tx = db.transaction('analyses', 'readonly');
-  const store = tx.objectStore('analyses');
-  const analyses = await store.getAll();
-  return analyses
-    .sort((a, b) => new Date(b.lastViewed).getTime() - new Date(a.lastViewed).getTime())
-    .slice(0, limit);
+  return await db.analyses.orderBy('lastViewed').reverse().limit(limit).toArray();
 }
 
 export async function updateAnalysis(
   id: string,
-  updates: Partial<SavedAnalysis>
+  updates: Partial<Omit<SavedAnalysis, 'id' | 'date' | 'createdAt'>>
 ): Promise<SavedAnalysis> {
-  const db = await getDB();
-  const tx = db.transaction('analyses', 'readwrite');
-  const store = tx.objectStore('analyses');
-  
-  const analysis = await store.get(id);
-  if (!analysis) {
+  const existing = await db.analyses.get(id);
+  if (!existing) {
     throw new Error('Analysis not found');
   }
 
-  const updatedAnalysis: SavedAnalysis = {
-    ...analysis,
+  const updatedAnalysis = {
+    ...existing,
     ...updates,
-    updatedAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
   };
 
-  await store.put(updatedAnalysis);
-  await tx.done;
+  await db.analyses.put(updatedAnalysis);
   return updatedAnalysis;
 }
 
 export async function deleteAnalysis(id: string): Promise<void> {
-  const db = await getDB();
-  await db.delete('analyses', id);
+  await db.analyses.delete(id);
 }
 
 export async function toggleFavorite(id: string): Promise<SavedAnalysis> {
-  const db = await getDB();
-  const tx = db.transaction('analyses', 'readwrite');
-  const store = tx.objectStore('analyses');
-  
-  const analysis = await store.get(id);
-  if (!analysis) {
-    throw new Error('Analysis not found');
-  }
+  return await db.transaction('rw', db.analyses, async () => {
+    const analysis = await db.analyses.get(id);
+    if (!analysis) {
+      throw new Error('Analysis not found');
+    }
 
-  const updatedAnalysis: SavedAnalysis = {
-    ...analysis,
-    favorite: !analysis.favorite,
-    updatedAt: new Date().toISOString(),
-  };
-  
-  await store.put(updatedAnalysis);
-  await tx.done;
-  return updatedAnalysis;
+    const updatedAnalysis: SavedAnalysis = {
+      ...analysis,
+      favorite: !analysis.favorite ? 1 : 0,
+      updatedAt: new Date().toISOString(),
+    };
+    
+    await db.analyses.put(updatedAnalysis);
+    return {
+      ...updatedAnalysis,
+      favorite: !!updatedAnalysis.favorite
+    };
+  });
 }
 
 export async function addTags(id: string, newTags: string[]): Promise<SavedAnalysis> {
-  const db = await getDB();
-  const tx = db.transaction('analyses', 'readwrite');
-  const store = tx.objectStore('analyses');
-  
-  const analysis = await store.get(id);
-  if (!analysis) {
-    throw new Error('Analysis not found');
-  }
+  return await db.transaction('rw', db.analyses, async () => {
+    const analysis = await db.analyses.get(id);
+    if (!analysis) {
+      throw new Error('Analysis not found');
+    }
 
-  const uniqueTags = Array.from(new Set([...analysis.tags, ...newTags]));
-  const updatedAnalysis: SavedAnalysis = {
-    ...analysis,
-    tags: uniqueTags,
-    updatedAt: new Date().toISOString(),
-  };
-  
-  await store.put(updatedAnalysis);
-  await tx.done;
-  return updatedAnalysis;
+    const uniqueTags = Array.from(new Set([...analysis.tags, ...newTags]));
+    const updatedAnalysis: SavedAnalysis = {
+      ...analysis,
+      tags: uniqueTags,
+      updatedAt: new Date().toISOString(),
+    };
+    
+    await db.analyses.put(updatedAnalysis);
+    return updatedAnalysis;
+  });
 }
 
 export async function searchByTags(tags: string[]): Promise<SavedAnalysis[]> {
-  const db = await getDB();
-  const tx = db.transaction('analyses', 'readonly');
-  const store = tx.objectStore('analyses');
-  const analyses = await store.getAll();
-  return analyses.filter(analysis => 
-    tags.every(tag => analysis.tags.includes(tag))
-  );
+  return await db.analyses
+    .filter((analysis: SavedAnalysis) => tags.every(tag => analysis.tags.includes(tag)))
+    .toArray();
 }
 
 export async function updateLastViewed(id: string): Promise<SavedAnalysis> {
-  const db = await getDB();
-  const tx = db.transaction('analyses', 'readwrite');
-  const store = tx.objectStore('analyses');
-  
-  const analysis = await store.get(id);
-  if (!analysis) {
-    throw new Error('Analysis not found');
-  }
+  return await db.transaction('rw', db.analyses, async () => {
+    const analysis = await db.analyses.get(id);
+    if (!analysis) {
+      throw new Error('Analysis not found');
+    }
 
-  const updatedAnalysis: SavedAnalysis = {
-    ...analysis,
-    lastViewed: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
+    const updatedAnalysis: SavedAnalysis = {
+      ...analysis,
+      lastViewed: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
 
-  await store.put(updatedAnalysis);
-  await tx.done;
-  return updatedAnalysis;
+    await db.analyses.put(updatedAnalysis);
+    return updatedAnalysis;
+  });
+}
+
+export async function getAllTags(): Promise<Tag[]> {
+  return await db.tags.toArray();
+}
+
+export async function saveTag(tag: Tag): Promise<Tag> {
+  await db.tags.put(tag);
+  return tag;
+}
+
+export async function deleteTag(tagName: string): Promise<void> {
+  await db.transaction('rw', [db.tags, db.analyses], async () => {
+    await db.tags.delete(tagName);
+    
+    const analysesWithTag = await db.analyses
+      .filter((analysis: SavedAnalysis) => analysis.tags.includes(tagName))
+      .toArray();
+    
+    for (const analysis of analysesWithTag) {
+      const updatedTags = analysis.tags.filter((t: string) => t !== tagName);
+      await saveAnalysis(
+        analysis.content,
+        analysis.response,
+        updatedTags,
+        analysis.id
+      );
+    }
+  });
+}
+
+export async function getTagColor(tagName: string): Promise<string | null> {
+  const tag = await db.tags.get(tagName);
+  return tag?.color || null;
 } 

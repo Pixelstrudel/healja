@@ -1,6 +1,12 @@
 import OpenAI from 'openai';
 
-const openai = new OpenAI({
+// Create OpenAI client for Whisper API only
+const whisperClient = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
+
+// Create OpenRouter client for analysis
+const openrouterClient = new OpenAI({
   baseURL: 'https://openrouter.ai/api/v1',
   apiKey: process.env.OPENROUTER_API_KEY,
   defaultHeaders: {
@@ -8,6 +14,11 @@ const openai = new OpenAI({
     'X-Title': 'Healja - Mental Health Support',
   },
 });
+
+export interface AudioTranscription {
+  text: string;
+  language?: string;
+}
 
 export interface TherapistResponse {
   severity: number;
@@ -94,13 +105,60 @@ Remember to:
 
 Always connect thoughts, emotions, and behaviors together in your explanations, showing how they influence each other and how changing one affects the others.`;
 
+// Function to transcribe audio using Whisper
+export async function transcribeAudio(audioBlob: Blob): Promise<AudioTranscription> {
+  try {
+    console.log('Preparing audio for transcription:', {
+      size: audioBlob.size,
+      type: audioBlob.type
+    });
+
+    if (audioBlob.size === 0) {
+      throw new Error('Empty audio file received');
+    }
+
+    // Determine file extension based on MIME type
+    const fileExtension = audioBlob.type === 'audio/wav' ? '.wav'
+      : audioBlob.type === 'audio/mp3' ? '.mp3'
+      : audioBlob.type === 'audio/mp4' ? '.mp4'
+      : audioBlob.type === 'audio/ogg' ? '.ogg'
+      : audioBlob.type === 'audio/webm' ? '.webm'
+      : '.wav'; // default to .wav
+
+    console.log('Using file extension:', fileExtension);
+
+    const formData = new FormData();
+    formData.append('file', audioBlob, `audio${fileExtension}`);
+    formData.append('model', 'whisper-1');
+
+    console.log('Sending request to Whisper API...');
+    const response = await whisperClient.audio.transcriptions.create({
+      file: audioBlob as any,
+      model: 'whisper-1',
+    });
+    console.log('Whisper API response received');
+
+    if (!response.text) {
+      throw new Error('No transcription text received from Whisper API');
+    }
+
+    return {
+      text: response.text,
+    };
+  } catch (error) {
+    console.error('Transcription error details:', error);
+    throw error;
+  }
+}
+
+// Function to analyze text using OpenRouter
 export async function analyzeWithTherapist(
   content: string,
   includeRebuttals: boolean
 ): Promise<TherapistResponse> {
   try {
-    const completion = await openai.chat.completions.create({
-      model: 'anthropic/claude-3.5-sonnet',
+    const completion = await openrouterClient.chat.completions.create({
+      model: 'anthropic/claude-3-sonnet',
       messages: [
         { role: 'system', content: SYSTEM_PROMPT },
         {
@@ -126,7 +184,7 @@ export async function analyzeWithTherapist(
       throw new Error('No JSON found in response');
     }
 
-    // Clean up the JSON string by removing control characters and ensuring proper escaping
+    // Clean up the JSON string
     const cleanJson = jsonMatch[0]
       .replace(/[\u0000-\u001F\u007F-\u009F]/g, '') // Remove control characters
       .replace(/\n/g, '\\n') // Properly escape newlines
@@ -157,7 +215,7 @@ export async function analyzeWithTherapist(
       throw new Error('Failed to parse response from OpenRouter');
     }
   } catch (error) {
-    console.error('Error calling OpenRouter:', error);
+    console.error('OpenRouter API error:', error);
     throw error;
   }
 } 
