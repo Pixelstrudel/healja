@@ -374,6 +374,91 @@ const WaveTransition = ({ isActive, onComplete }: { isActive: boolean; onComplet
   );
 };
 
+const ExpandableStep = ({ step, index }: { step: string; index: number }) => {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const parts = step.split('@@@').map(s => s.trim());
+  const instruction = parts[0];
+  const details = parts[1];
+  const hasDetails = details && details.length > 0;
+
+  if (!hasDetails) {
+    return (
+      <div className="mt-2 first:mt-0">
+        <div className="w-full flex items-center px-3 py-2 rounded-lg">
+          <div className="flex-shrink-0 w-6 flex items-center justify-center">
+            <span className="text-nord-10 dark:text-nord-8 font-medium text-sm leading-none">{index + 1}.</span>
+          </div>
+          <div className="flex-1 ml-3">
+            <div className="prose dark:prose-dark max-w-none">
+              <ReactMarkdown>{instruction}</ReactMarkdown>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-2 first:mt-0">
+      <button
+        onClick={() => setIsExpanded(!isExpanded)}
+        className="w-full flex items-center group px-3 py-2 rounded-lg hover:bg-nord-5/50 dark:hover:bg-nord-2/50 transition-colors duration-200"
+      >
+        <div className="flex-shrink-0 w-6 flex items-center justify-center">
+          <span className="text-nord-10 dark:text-nord-8 font-medium text-sm leading-none">{index + 1}.</span>
+        </div>
+        <div className="flex-1 flex items-center justify-between ml-3">
+          <div className="prose dark:prose-dark max-w-none group-hover:text-nord-10 dark:group-hover:text-nord-8 transition-colors duration-200">
+            <ReactMarkdown>{instruction}</ReactMarkdown>
+          </div>
+          <motion.div 
+            className="ml-3 flex-shrink-0 relative w-5 h-5"
+            initial={false}
+          >
+            <motion.svg 
+              animate={{ rotate: isExpanded ? 180 : 0 }}
+              transition={{ duration: 0.3, ease: [0.4, 0, 0.2, 1] }}
+              className="absolute inset-0 w-full h-full text-nord-10 dark:text-nord-8 opacity-60 group-hover:opacity-100"
+              fill="none" 
+              viewBox="0 0 24 24" 
+              stroke="currentColor"
+            >
+              <path 
+                strokeLinecap="round" 
+                strokeLinejoin="round" 
+                strokeWidth={2} 
+                d="M19 9l-7 7-7-7" 
+              />
+            </motion.svg>
+          </motion.div>
+        </div>
+      </button>
+      <AnimatePresence>
+        {isExpanded && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden"
+          >
+            <div className="ml-9 mt-2 pl-4 border-l-2 border-nord-10/20 dark:border-nord-10/30">
+              <motion.div
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.2, delay: 0.1 }}
+                className="prose dark:prose-dark max-w-none text-nord-3 dark:text-nord-4 bg-nord-6/50 dark:bg-nord-1/50 rounded-lg p-4"
+              >
+                <ReactMarkdown>{details}</ReactMarkdown>
+              </motion.div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+};
+
 export default function Home() {
   const [content, setContent] = useState('');
   const [includeRebuttals, setIncludeRebuttals] = useState(false);
@@ -587,7 +672,9 @@ ${cbtAnalysis.copingStrategies.map(strategy => (
 ${strategy.explanation}
 
 **How to:**
-${strategy.howTo.split('\n').map(step => `- ${step}`).join('\n')}`
+${strategy.howTo.split('||').map((step, index) => (
+  <ExpandableStep key={index} step={step} index={index} />
+))}`
 )).join('\n\n')}
 
 ${rebuttals ? `
@@ -703,7 +790,7 @@ ${rebuttal.response}`
         yPosition = addWrappedText(strategy.explanation, yPosition + 7);
         yPosition += 7;
         pdf.text('How to:', 15, yPosition);
-        strategy.howTo.split('\n').forEach((step, index) => {
+        strategy.howTo.split('||').forEach((step, index) => {
           yPosition = addWrappedText(`${index + 1}. ${step}`, yPosition + 7);
         });
       });
@@ -739,7 +826,35 @@ ${rebuttal.response}`
 
   const startRecording = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Check if MediaDevices API is supported
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error('Audio recording is not supported in this browser. Please try using Chrome, Firefox, or Safari.');
+      }
+
+      // Request permission and get audio stream
+      let stream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ 
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true
+          } 
+        });
+      } catch (err) {
+        if (err instanceof Error) {
+          if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+            throw new Error('Microphone permission was denied. Please allow access to your microphone to use voice recording.');
+          } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+            throw new Error('No microphone was found. Please ensure your device has a working microphone.');
+          } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+            throw new Error('Your microphone is busy or not responding. Please check your device settings.');
+          } else if (err.name === 'OverconstrainedError') {
+            throw new Error('Could not find a suitable microphone. Please check your device settings.');
+          }
+        }
+        throw new Error('Could not access the microphone. Please check your device settings.');
+      }
       
       // Get supported MIME types for Whisper API
       const mimeType = [
@@ -751,7 +866,8 @@ ${rebuttal.response}`
       ].find(type => MediaRecorder.isTypeSupported(type)) || '';
 
       if (!mimeType) {
-        throw new Error('No supported audio format available');
+        stream.getTracks().forEach(track => track.stop());
+        throw new Error('No supported audio format available on this device.');
       }
 
       console.log('Using MIME type:', mimeType);
@@ -776,6 +892,10 @@ ${rebuttal.response}`
         const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
         console.log('Recording stopped. Blob size:', audioBlob.size, 'bytes, type:', audioBlob.type);
 
+        if (audioBlob.size === 0) {
+          throw new Error('No audio was recorded. Please try again.');
+        }
+
         // Convert to WAV if necessary
         let finalBlob = audioBlob;
         let finalType = mimeType;
@@ -795,8 +915,7 @@ ${rebuttal.response}`
             console.log('Converted audio to WAV format');
           } catch (error) {
             console.error('Error converting audio format:', error);
-            setError('Error processing audio. Please try again.');
-            return;
+            throw new Error('Error processing audio. Please try again with a different browser or device.');
           }
         }
 
@@ -810,8 +929,9 @@ ${rebuttal.response}`
     } catch (error) {
       console.error('Error accessing microphone:', error);
       setError(error instanceof Error 
-        ? `Microphone error: ${error.message}` 
-        : 'Could not access microphone. Please check your permissions.');
+        ? error.message 
+        : 'Could not access microphone. Please check your device permissions and settings.');
+      setIsRecording(false);
     }
   };
 
@@ -1825,9 +1945,9 @@ ${rebuttal.response}`
 
         <div className="space-y-6">
           <div className="relative">
-          <TextArea
-            value={content}
-            onChange={setContent}
+            <TextArea
+              value={content}
+              onChange={setContent}
               disabled={isLoading || isRecording}
               placeholder={isRecording ? "Recording... Speak your thoughts..." : "What's on your mind? Share your thoughts and concerns..."}
               className="bg-nord-5 dark:bg-nord-1 text-nord-0 dark:text-nord-4 border border-nord-4 dark:border-nord-3 focus:ring-nord-10 placeholder-nord-3 dark:placeholder-nord-4"
@@ -1981,7 +2101,12 @@ ${rebuttal.response}`
                           <div className="mt-2 space-y-2">
                             <div className="prose dark:prose-dark max-w-none">
                               <ReactMarkdown>{`**Impact:** ${pattern.impact}`}</ReactMarkdown>
-                              <ReactMarkdown>{`**Solution:** ${pattern.solution}`}</ReactMarkdown>
+                            </div>
+                            <div>
+                              <p className="text-nord-10 dark:text-nord-8 font-medium">Solution:</p>
+                              {pattern.solution.split('||').filter(step => step.trim()).map((step, stepIndex) => (
+                                <ExpandableStep key={stepIndex} step={step} index={stepIndex} />
+                              ))}
                             </div>
                           </div>
                         </div>
@@ -2016,15 +2141,8 @@ ${rebuttal.response}`
                           </div>
                           <div className="mt-2 space-y-2">
                             <p className="text-nord-10 dark:text-nord-8 font-medium">How to:</p>
-                            {strategy.howTo.split('\n').filter(step => step.trim()).map((step, stepIndex) => (
-                              <div key={stepIndex} className="flex items-center space-x-3">
-                                <div className="flex-shrink-0 w-6 h-6 rounded-full bg-nord-10/20 dark:bg-nord-10/30 flex items-center justify-center">
-                                  <span className="text-nord-10 dark:text-nord-8 font-medium text-sm leading-none">{stepIndex + 1}</span>
-                                </div>
-                                <div className="prose dark:prose-dark max-w-none flex-1">
-                                  <ReactMarkdown>{step}</ReactMarkdown>
-                                </div>
-                              </div>
+                            {strategy.howTo.split('||').filter(step => step.trim()).map((step, stepIndex) => (
+                              <ExpandableStep key={stepIndex} step={step} index={stepIndex} />
                             ))}
                           </div>
                         </div>
@@ -2081,7 +2199,7 @@ ${rebuttal.response}`
             </div>
           )}
         </div>
-    </div>
+      </div>
     </main>
   );
 }

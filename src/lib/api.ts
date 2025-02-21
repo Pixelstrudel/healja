@@ -70,14 +70,14 @@ IMPORTANT: You must respond in valid JSON format following this exact structure.
       {
         "pattern": string (identify a specific thought pattern),
         "impact": string (explain impact with key terms in **bold**),
-        "solution": string (provide specific technique with key steps in **bold**)
+        "solution": string (step-by-step solution, each step separated by ||. For each step, provide a brief instruction followed by @@@ and then a detailed explanation. Example: "Challenge negative thoughts@@@ When you notice a negative thought, pause and examine it objectively. Consider if you would judge a friend this harshly. Look for evidence that contradicts the negative thought." - The UI will show the brief instruction and make the detailed part expandable)
       }
     ],
     "copingStrategies": [
       {
         "strategy": string (name of the coping strategy),
         "explanation": string (why this strategy works, with key concepts in **bold**),
-        "howTo": string (step-by-step instructions, separated by ||)
+        "howTo": string (step-by-step instructions, each step separated by ||. For each step, provide a brief instruction followed by @@@ and then a detailed explanation. Example: "Take three deep breaths@@@ Breathe in slowly through your nose for 4 counts, hold for 4, then exhale through your mouth for 6 counts. This engages your parasympathetic nervous system and helps calm your body's stress response." - The UI will show the brief instruction and make the detailed part expandable)
       }
     ]
   },
