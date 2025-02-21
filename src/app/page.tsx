@@ -180,20 +180,97 @@ function LoadingWave() {
   );
 }
 
-const SimilarEntries = ({ content, analyses, onLoad }: { content: string; analyses: SavedAnalysis[]; onLoad: (analysis: SavedAnalysis) => void }) => {
+// Add these utility functions at the top level
+const normalizeText = (text: string): string => {
+  return text
+    .toLowerCase()
+    .normalize('NFKD') // Normalize unicode characters
+    .replace(/[\u0300-\u036f]/g, '') // Remove diacritics
+    .replace(/[^a-z0-9\s]/g, ' ') // Replace non-alphanumeric with spaces
+    .replace(/\s+/g, ' ') // Replace multiple spaces with single space
+    .trim();
+};
+
+const getWordSimilarity = (text1: string, text2: string): number => {
+  const words1 = new Set(normalizeText(text1).split(' '));
+  const words2 = new Set(normalizeText(text2).split(' '));
+  
+  const intersection = new Set([...words1].filter(x => words2.has(x)));
+  const union = new Set([...words1, ...words2]);
+  
+  return intersection.size / union.size;
+};
+
+const getTextSimilarity = (text1: string, text2: string): number => {
+  // Get both word-level and character-level similarity
+  const wordSim = getWordSimilarity(text1, text2);
+  
+  // Get character-level similarity for catching typos and partial matches
+  const norm1 = normalizeText(text1);
+  const norm2 = normalizeText(text2);
+  const maxLen = Math.max(norm1.length, norm2.length);
+  const levenshtein = maxLen - levenshteinDistance(norm1, norm2);
+  const charSim = levenshtein / maxLen;
+  
+  // Combine both metrics with more weight on word similarity
+  return (wordSim * 0.7) + (charSim * 0.3);
+};
+
+// Levenshtein distance for character-level similarity
+const levenshteinDistance = (str1: string, str2: string): number => {
+  const track = Array(str2.length + 1).fill(null).map(() =>
+    Array(str1.length + 1).fill(null));
+  for (let i = 0; i <= str1.length; i += 1) {
+    track[0][i] = i;
+  }
+  for (let j = 0; j <= str2.length; j += 1) {
+    track[j][0] = j;
+  }
+  for (let j = 1; j <= str2.length; j += 1) {
+    for (let i = 1; i <= str1.length; i += 1) {
+      const indicator = str1[i - 1] === str2[j - 1] ? 0 : 1;
+      track[j][i] = Math.min(
+        track[j][i - 1] + 1,
+        track[j - 1][i] + 1,
+        track[j - 1][i - 1] + indicator
+      );
+    }
+  }
+  return track[str2.length][str1.length];
+};
+
+const SimilarEntries = ({ content, analyses, onLoad, tags }: { 
+  content: string; 
+  analyses: SavedAnalysis[]; 
+  onLoad: (analysis: SavedAnalysis) => void;
+  tags: Tag[];
+}) => {
   if (!content.trim() || content.length < 3) return null;
 
   // Find similar analyses based on content
   const similarAnalyses = analyses
-    .filter(analysis => {
-      const contentLower = content.toLowerCase();
-      const analysisContentLower = analysis.content.toLowerCase();
-      const words = contentLower.split(/\s+/).filter(word => word.length > 3);
+    .map(analysis => {
+      const contentSimilarity = getTextSimilarity(content, analysis.content);
+      const summarySimilarity = getTextSimilarity(content, analysis.summary);
       
-      // Count how many significant words match
-      const matchingWords = words.filter(word => analysisContentLower.includes(word));
-      return matchingWords.length >= 2; // At least 2 significant words match
+      // Calculate tag relevance
+      const tagRelevance = analysis.tags.reduce((acc, tag) => {
+        const tagSimilarity = getTextSimilarity(content, tag);
+        return acc + (tagSimilarity * 0.1); // Small boost for matching tags
+      }, 0);
+      
+      // Combine different similarity scores
+      const totalScore = (contentSimilarity * 0.6) + // Content is most important
+                        (summarySimilarity * 0.3) + // Summary is next
+                        tagRelevance; // Tags provide a small boost
+      
+      return {
+        analysis,
+        score: totalScore
+      };
     })
+    .filter(({ score }) => score > 0.1) // Only keep somewhat relevant matches
+    .sort((a, b) => b.score - a.score)
     .slice(0, 3); // Show top 3 matches
 
   if (similarAnalyses.length === 0) return null;
@@ -206,7 +283,7 @@ const SimilarEntries = ({ content, analyses, onLoad }: { content: string; analys
     >
       <p className="text-sm text-nord-3 dark:text-nord-4">Similar past entries:</p>
       <div className="space-y-2">
-        {similarAnalyses.map(analysis => (
+        {similarAnalyses.map(({ analysis }) => (
           <motion.div
             key={analysis.id}
             initial={{ opacity: 0 }}
@@ -223,14 +300,22 @@ const SimilarEntries = ({ content, analyses, onLoad }: { content: string; analys
                 </p>
                 {analysis.tags.length > 0 && (
                   <div className="flex flex-wrap gap-1 mt-2">
-                    {analysis.tags.map(tag => (
-                      <span
-                        key={tag}
-                        className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-nord-10/10 text-nord-10 dark:bg-nord-10/20 dark:text-nord-8"
-                      >
-                        {tag}
-                      </span>
-                    ))}
+                    {analysis.tags.map(tag => {
+                      const tagData = tags.find(t => t.name === tag);
+                      return (
+                        <span
+                          key={tag}
+                          style={{
+                            backgroundColor: tagData ? `${tagData.color}20` : undefined,
+                            borderColor: tagData ? `${tagData.color}30` : undefined,
+                            color: tagData ? tagData.color : undefined
+                          }}
+                          className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border shadow-sm"
+                        >
+                          {tag}
+                        </span>
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -262,6 +347,30 @@ const SimilarEntries = ({ content, analyses, onLoad }: { content: string; analys
         ))}
       </div>
     </motion.div>
+  );
+};
+
+const WaveTransition = ({ isActive, onComplete }: { isActive: boolean; onComplete: () => void }) => {
+  useEffect(() => {
+    if (isActive) {
+      const timer = setTimeout(onComplete, 400); // Much shorter duration
+      return () => clearTimeout(timer);
+    }
+  }, [isActive, onComplete]);
+
+  if (!isActive) return null;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{
+        duration: 0.3, // Much faster fade
+        ease: "easeInOut"
+      }}
+      className="fixed inset-0 z-50 pointer-events-none bg-nord-6 dark:bg-nord-0"
+    />
   );
 };
 
@@ -298,6 +407,9 @@ export default function Home() {
   const [showTagSuggestions, setShowTagSuggestions] = useState(false);
   const [isTypingTag, setIsTypingTag] = useState(false);
   const [tagInputStart, setTagInputStart] = useState(-1);
+  const [editingTagName, setEditingTagName] = useState<string | null>(null);
+  const [newTagName, setNewTagName] = useState('');
+  const [showWaveTransition, setShowWaveTransition] = useState(false);
 
   // Load saved analyses and preferences on mount
   useEffect(() => {
@@ -960,19 +1072,104 @@ ${rebuttal.response}`
 
   const filteredAnalyses = savedAnalyses.filter(analysis => {
     const searchLower = searchQuery.toLowerCase();
-    const matchesSearch = analysis.content.toLowerCase().includes(searchLower) ||
+    
+    // If there's no search query, just check tags
+    if (!searchLower) {
+      return selectedTags.length === 0 || 
+        selectedTags.every(tag => analysis.tags.includes(tag));
+    }
+    
+    // Calculate similarity scores
+    const contentSimilarity = getTextSimilarity(searchQuery, analysis.content);
+    const summarySimilarity = getTextSimilarity(searchQuery, analysis.summary);
+    const tagSimilarity = analysis.tags.some(tag => 
+      getTextSimilarity(searchQuery, tag) > 0.8
+    );
+    
+    // Match if any similarity is high enough or exact matches exist
+    const matches = contentSimilarity > 0.15 || 
+                   summarySimilarity > 0.3 ||
+                   tagSimilarity ||
+      analysis.content.toLowerCase().includes(searchLower) ||
       analysis.summary.toLowerCase().includes(searchLower) ||
-      analysis.tags.some(tag => tag.toLowerCase().includes(searchLower));
+                   analysis.tags.some(tag => tag.toLowerCase().includes(searchLower));
 
-    // If there are selected tags, ensure all of them are present in the analysis
+    // Check selected tags
     const matchesTags = selectedTags.length === 0 || 
       selectedTags.every(tag => analysis.tags.includes(tag));
 
-    return matchesSearch && matchesTags;
+    return matches && matchesTags;
   });
+
+  const handleTagRename = async (oldName: string, newName: string) => {
+    if (!newName.trim() || oldName === newName) {
+      setEditingTagName(null);
+      return;
+    }
+
+    try {
+      // Update the tag in the tags table
+      const tagData = tags.find(t => t.name === oldName);
+      if (!tagData) return;
+
+      await saveTag({
+        name: newName.trim(),
+        color: tagData.color
+      });
+
+      // Update all analyses that use this tag
+      const analysesWithTag = savedAnalyses.filter(a => a.tags.includes(oldName));
+      for (const analysis of analysesWithTag) {
+        const newTags = analysis.tags.map(t => t === oldName ? newName : t);
+        await dbSaveAnalysis(
+          analysis.content,
+          analysis.response,
+          newTags,
+          analysis.id
+        );
+      }
+
+      // Delete the old tag
+      await deleteTag(oldName);
+
+      // Update local state
+      setTags(prev => prev.map(t => t.name === oldName ? { ...t, name: newName } : t));
+      setSavedAnalyses(prev => prev.map(a => ({
+        ...a,
+        tags: a.tags.map(t => t === oldName ? newName : t)
+      })));
+      setEditingTagName(null);
+    } catch (error) {
+      console.error('Error renaming tag:', error);
+      setError('Failed to rename tag. Please try again.');
+    }
+  };
+
+  // Add reset function
+  const resetToInitialState = () => {
+    setContent('');
+    setResponse(null);
+    setError(null);
+    setShowSavedAnalyses(false);
+    setSearchQuery('');
+    setSelectedTags([]);
+    setViewMode('all');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   return (
     <main className="min-h-screen bg-nord-6 dark:bg-nord-0">
+      <AnimatePresence>
+        {showWaveTransition && (
+          <WaveTransition 
+            isActive={showWaveTransition} 
+            onComplete={() => {
+              setShowWaveTransition(false);
+              resetToInitialState();
+            }}
+          />
+        )}
+      </AnimatePresence>
       <div className="max-w-4xl mx-auto px-4 py-8">
         <motion.div
           initial={{ opacity: 0, y: -20 }}
@@ -983,7 +1180,8 @@ ${rebuttal.response}`
           <img 
             src="/logo-animated.svg" 
             alt="Healja Logo" 
-            className="w-20 h-20"
+            className="w-20 h-20 cursor-pointer hover:scale-105 transition-transform"
+            onClick={() => setShowWaveTransition(true)}
           />
           <div className="flex-1">
             <h1 className="text-4xl font-bold mb-2">
@@ -1148,7 +1346,7 @@ ${rebuttal.response}`
                           </span>
                         </button>
                       ))}
-                  </div>
+              </div>
                 )}
               </div>
 
@@ -1206,52 +1404,89 @@ ${rebuttal.response}`
             ) : viewMode === 'tags' ? (
               <div className="mt-4 space-y-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {tags.map((tag) => (
-                    <motion.div
-                      key={tag.name}
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      className="p-4 bg-nord-6 dark:bg-nord-1 rounded-lg border border-nord-4/20 hover:border-nord-4/40 hover-border shadow-sm"
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-3">
-                          {editingTagColor === tag.name ? (
-                            <input
-                              type="color"
-                              value={tag.color}
-                              onChange={(e) => handleTagColorChange(tag.name, e.target.value)}
-                              onBlur={() => setEditingTagColor(null)}
-                              className="w-8 h-8 rounded cursor-pointer bg-transparent [&::-webkit-color-swatch]:rounded [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:border-none"
-                            />
-                          ) : (
-                            <div
-                              onClick={() => setEditingTagColor(tag.name)}
-                              style={{ backgroundColor: tag.color }}
-                              className="w-8 h-8 rounded cursor-pointer"
-                              title="Click to change color"
-                            />
+                  {tags.map((tag) => {
+                    const isSystemTag = tag.name.startsWith('Level ') || tag.name === 'What ifs';
+                    return (
+                      <motion.div
+                        key={tag.name}
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        className="p-4 bg-nord-6 dark:bg-nord-1 rounded-lg border border-nord-4/20 hover:border-nord-4/40 hover-border shadow-sm"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-3">
+                            {editingTagColor === tag.name && !isSystemTag ? (
+                              <input
+                                type="color"
+                                value={tag.color}
+                                onChange={(e) => handleTagColorChange(tag.name, e.target.value)}
+                                onBlur={() => setEditingTagColor(null)}
+                                className="w-8 h-8 rounded cursor-pointer bg-transparent [&::-webkit-color-swatch]:rounded [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:border-none"
+                              />
+                            ) : (
+                              <div
+                                onClick={() => !isSystemTag && setEditingTagColor(tag.name)}
+                                style={{ backgroundColor: tag.color }}
+                                className={`w-8 h-8 rounded ${!isSystemTag ? 'cursor-pointer' : 'cursor-default'}`}
+                                title={!isSystemTag ? "Click to change color" : undefined}
+                              />
+                            )}
+                            {editingTagName === tag.name ? (
+                              <form
+                                onSubmit={(e) => {
+                                  e.preventDefault();
+                                  handleTagRename(tag.name, newTagName);
+                                }}
+                                className="flex items-center"
+                              >
+                                <input
+                                  type="text"
+                                  value={newTagName}
+                                  onChange={(e) => setNewTagName(e.target.value)}
+                                  onBlur={() => {
+                                    if (newTagName !== tag.name) {
+                                      handleTagRename(tag.name, newTagName);
+                                    } else {
+                                      setEditingTagName(null);
+                                    }
+                                  }}
+                                  autoFocus
+                                  className="px-2 py-1 rounded bg-nord-5 dark:bg-nord-2 text-nord-0 dark:text-nord-6 border border-nord-4 dark:border-nord-3 focus:ring-2 focus:ring-nord-10 focus:border-transparent font-medium"
+                                />
+                              </form>
+                            ) : (
+                              <span 
+                                className={`font-medium text-nord-0 dark:text-nord-6 ${!isSystemTag ? 'cursor-pointer hover:text-nord-10 dark:hover:text-nord-8 transition-colors' : ''}`}
+                                onClick={() => {
+                                  if (!isSystemTag) {
+                                    setEditingTagName(tag.name);
+                                    setNewTagName(tag.name);
+                                  }
+                                }}
+                                title={!isSystemTag ? "Click to rename" : undefined}
+                              >
+                                {tag.name}
+                              </span>
+                            )}
+                          </div>
+                          {!isSystemTag && (
+                            <button
+                              onClick={() => handleTagDelete(tag.name)}
+                              className="text-nord-11 hover:text-nord-11/80 transition-colors"
+                              title="Delete tag"
+                            >
+                              <svg className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
+                                <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                              </svg>
+                            </button>
                           )}
-                          <span className="font-medium text-nord-0 dark:text-nord-6">
-                            {tag.name}
-                          </span>
                         </div>
-                        {tag.name !== 'What ifs' && (
-                          <button
-                            onClick={() => handleTagDelete(tag.name)}
-                            className="text-nord-11 hover:text-nord-11/80 transition-colors"
-                            title="Delete tag"
-                          >
-                            <svg className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
-                              <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
-                            </svg>
-                          </button>
-                        )}
-                      </div>
-                      <div className="mt-2 text-sm text-nord-3 dark:text-nord-4">
-                        Used in {savedAnalyses.filter(a => a.tags.includes(tag.name)).length} analyses
-                      </div>
-                    </motion.div>
-                  ))}
+                        <div className="mt-2 text-sm text-nord-3 dark:text-nord-4">
+                          Used in {savedAnalyses.filter(a => a.tags.includes(tag.name)).length} analyses
+                        </div>
+                      </motion.div>
+                    );
+                  })}
                 </div>
                 
                 <div className="mt-6">
@@ -1296,17 +1531,17 @@ ${rebuttal.response}`
                     <div className="space-y-4">
                       {/* Header Section */}
                       <div className="flex items-start justify-between">
-                        <div className="flex items-center space-x-3">
-                          <motion.button
-                            onClick={() => handleToggleFavorite(analysis.id)}
-                            className={`text-lg ${
-                              analysis.favorite ? 'text-nord-13' : 'text-nord-3 dark:text-nord-4'
-                            } hover:scale-110 transition-transform`}
-                            whileHover={{ scale: 1.1 }}
-                            whileTap={{ scale: 0.95 }}
-                          >
-                            {analysis.favorite ? '★' : '☆'}
-                          </motion.button>
+                      <div className="flex items-center space-x-3">
+                        <motion.button
+                          onClick={() => handleToggleFavorite(analysis.id)}
+                          className={`text-lg ${
+                            analysis.favorite ? 'text-nord-13' : 'text-nord-3 dark:text-nord-4'
+                          } hover:scale-110 transition-transform`}
+                          whileHover={{ scale: 1.1 }}
+                          whileTap={{ scale: 0.95 }}
+                        >
+                          {analysis.favorite ? '★' : '☆'}
+                        </motion.button>
                           <div className="flex flex-col">
                             {editingTitleId === analysis.id ? (
                               <form
@@ -1343,7 +1578,7 @@ ${rebuttal.response}`
                                 >
                                   {analysis.summary}
                                 </h3>
-                              </div>
+                          </div>
                             )}
                             <div className="flex items-center space-x-2 mt-1 text-xs text-nord-3 dark:text-nord-4">
                               <span>Created {formatDate(analysis.createdAt)}</span>
@@ -1351,106 +1586,112 @@ ${rebuttal.response}`
                                 <span>• Updated {formatDate(analysis.updatedAt)}</span>
                               )}
                               <span>• Viewed {formatDate(analysis.lastViewed)}</span>
-                            </div>
-                          </div>
+                        </div>
+                      </div>
                         </div>
                         <div className="flex items-center space-x-2">
-                          <div className="relative inline-block export-menu-container">
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setOpenExportMenu(openExportMenu === analysis.id ? null : analysis.id);
-                              }}
+                        <div className="relative inline-block export-menu-container">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setOpenExportMenu(openExportMenu === analysis.id ? null : analysis.id);
+                            }}
                               className="px-4 py-1.5 rounded-md text-sm bg-nord-10/10 text-nord-10 hover:bg-nord-10/20 font-medium transition-colors flex items-center space-x-1"
-                              title="Export options"
-                            >
+                            title="Export options"
+                          >
                               <span>Export</span>
                               <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
                                 <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
                               </svg>
-                            </button>
-                            <AnimatePresence>
-                              {openExportMenu === analysis.id && (
-                                <motion.div
-                                  initial={{ opacity: 0, y: -5 }}
-                                  animate={{ opacity: 1, y: 0 }}
-                                  exit={{ opacity: 0, y: -5 }}
+                          </button>
+                          <AnimatePresence>
+                            {openExportMenu === analysis.id && (
+                              <motion.div
+                                initial={{ opacity: 0, y: -5 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -5 }}
                                   className="absolute right-0 mt-1 w-36 bg-nord-6 dark:bg-nord-1 rounded-lg shadow-lg border border-nord-4/20 z-50 overflow-hidden"
-                                >
-                                  <button
-                                    onClick={() => {
-                                      downloadMarkdown(analysis);
-                                      setOpenExportMenu(null);
-                                    }}
+                              >
+                                <button
+                                  onClick={() => {
+                                    downloadMarkdown(analysis);
+                                    setOpenExportMenu(null);
+                                  }}
                                     className="w-full px-4 py-2 text-left text-sm hover:bg-nord-5 dark:hover:bg-nord-2 text-nord-0 dark:text-nord-6 flex items-center space-x-2"
-                                  >
+                                >
                                     <span className="text-nord-10">📝</span>
                                     <span>Markdown</span>
-                                  </button>
-                                  <button
-                                    onClick={() => {
-                                      downloadPdf(analysis);
-                                      setOpenExportMenu(null);
-                                    }}
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    downloadPdf(analysis);
+                                    setOpenExportMenu(null);
+                                  }}
                                     className="w-full px-4 py-2 text-left text-sm hover:bg-nord-5 dark:hover:bg-nord-2 text-nord-0 dark:text-nord-6 border-t border-nord-4/20 flex items-center space-x-2"
-                                  >
+                                >
                                     <span className="text-nord-10">📄</span>
                                     <span>PDF</span>
-                                  </button>
-                                </motion.div>
-                              )}
-                            </AnimatePresence>
-                          </div>
-                          <button
-                            onClick={() => loadAnalysis(analysis)}
+                                </button>
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+                        </div>
+                        <button
+                          onClick={() => loadAnalysis(analysis)}
                             className="px-4 py-1.5 rounded-md text-sm bg-nord-10 text-nord-6 hover:bg-nord-9 font-medium transition-colors flex items-center space-x-1"
-                          >
+                        >
                             <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
                               <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clipRule="evenodd" />
                             </svg>
                             <span>Load</span>
-                          </button>
-                          <button
-                            onClick={() => setDeletingId(analysis.id)}
+                        </button>
+                        <button
+                          onClick={() => setDeletingId(analysis.id)}
                             className="px-4 py-1.5 rounded-md text-sm bg-nord-11/10 text-nord-11 hover:bg-nord-11/20 font-medium transition-colors flex items-center space-x-1"
-                          >
+                        >
                             <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
                               <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
                             </svg>
                             <span>Delete</span>
-                          </button>
-                        </div>
+                        </button>
                       </div>
+                    </div>
 
                       {/* Tags Section */}
                       <div className="flex flex-wrap items-center gap-2">
                         {analysis.tags.map((tag) => {
                           const tagData = tags.find(t => t.name === tag);
+                          const isSystemTag = tag.startsWith('Level ') || tag === 'What ifs';
+                          
                           return (
-                            <button
+                            <div
                               key={tag}
-                              onClick={() => handleTagClick(tag)}
                               style={{
                                 backgroundColor: tagData ? `${tagData.color}20` : undefined,
                                 borderColor: tagData ? `${tagData.color}30` : undefined,
                                 color: tagData ? tagData.color : undefined
                               }}
-                              className="inline-flex items-center px-3 py-1.5 rounded-full text-sm font-medium border shadow-sm hover:opacity-80 transition-opacity"
+                              className="group inline-flex items-center px-3 py-1.5 rounded-full text-sm font-medium border shadow-sm hover:opacity-80 transition-opacity"
                             >
-                              {tag}
-                              {!tag.startsWith('Level ') && tag !== 'What ifs' && (
-                                <button
+                              <span 
+                                onClick={() => handleTagClick(tag)}
+                                className="cursor-pointer"
+                              >
+                                {tag}
+                              </span>
+                              {!isSystemTag && (
+                                <span
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     handleRemoveTag(analysis, tag);
                                   }}
-                                  className="ml-2 hover:text-nord-11 transition-colors"
+                                  className="ml-2 hover:text-nord-11 transition-colors cursor-pointer"
                                   title="Remove tag"
                                 >
                                   ×
-                                </button>
+                                </span>
                               )}
-                            </button>
+                            </div>
                           );
                         })}
                         <form
@@ -1510,17 +1751,17 @@ ${rebuttal.response}`
                       {/* Content Preview */}
                       <div className="mt-2">
                         <p className="text-nord-3 dark:text-nord-4 text-sm line-clamp-3 relative after:absolute after:bottom-0 after:right-0 after:h-6 after:w-12 after:bg-gradient-to-l after:from-nord-6 dark:after:from-nord-1 after:to-transparent">
-                          <HighlightedText 
-                            text={getMatchContext(
-                              searchQuery.toLowerCase().includes(analysis.summary.toLowerCase())
-                                ? analysis.summary
-                                : analysis.content,
+                        <HighlightedText 
+                          text={getMatchContext(
+                            searchQuery.toLowerCase().includes(analysis.summary.toLowerCase())
+                              ? analysis.summary
+                              : analysis.content,
                               searchQuery,
                               300
-                            )}
-                            searchQuery={searchQuery}
-                          />
-                        </p>
+                          )}
+                          searchQuery={searchQuery}
+                        />
+                      </p>
                       </div>
                     </div>
                   </motion.div>
@@ -1584,16 +1825,16 @@ ${rebuttal.response}`
 
         <div className="space-y-6">
           <div className="relative">
-            <TextArea
-              value={content}
-              onChange={setContent}
+          <TextArea
+            value={content}
+            onChange={setContent}
               disabled={isLoading || isRecording}
               placeholder={isRecording ? "Recording... Speak your thoughts..." : "What's on your mind? Share your thoughts and concerns..."}
               className="bg-nord-5 dark:bg-nord-1 text-nord-0 dark:text-nord-4 border border-nord-4 dark:border-nord-3 focus:ring-nord-10 placeholder-nord-3 dark:placeholder-nord-4"
             />
             <button
               onClick={isRecording ? stopRecording : startRecording}
-              disabled={isLoading}
+            disabled={isLoading}
               className={`absolute right-4 bottom-4 p-2 rounded-full transition-all ${
                 isRecording
                   ? 'bg-nord-11 text-nord-6 animate-pulse'
@@ -1615,6 +1856,7 @@ ${rebuttal.response}`
             <SimilarEntries 
               content={content} 
               analyses={savedAnalyses} 
+              tags={tags}
               onLoad={async (analysis) => {
                 await loadAnalysis(analysis);
               }} 
@@ -1839,7 +2081,7 @@ ${rebuttal.response}`
             </div>
           )}
         </div>
-      </div>
+    </div>
     </main>
   );
 }
