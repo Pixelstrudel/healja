@@ -13,9 +13,9 @@ export function Card({ title, children, delay = 0 }: CardProps) {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5, delay }}
-      className="bg-white rounded-lg shadow-md p-6 mb-4 border border-[#a5ccdb]/20"
+      className="bg-nord-5 dark:bg-nord-1 rounded-lg shadow-md p-6 mb-4 border border-nord-4/20 dark:border-nord-3/20"
     >
-      <h3 className="text-lg font-semibold text-[#515f66] mb-3">{title}</h3>
+      <h3 className="text-lg font-semibold text-nord-0 dark:text-nord-4 mb-3">{title}</h3>
       {children}
     </motion.div>
   );
@@ -29,29 +29,29 @@ const severityDefinitions = {
   5: "Critical concern requiring immediate professional help"
 };
 
-const severityColors = {
-  1: 'bg-[#a5ccdb] text-[#4a8199]',
-  2: 'bg-[#7694a3] text-white',
-  3: 'bg-yellow-400 text-yellow-900',
-  4: 'bg-orange-400 text-white',
-  5: 'bg-red-400 text-white'
+const severityGradientColors = {
+  1: 'bg-nord-14/90 text-nord-0', // Green
+  2: 'bg-nord-14/90 text-nord-0', // Green to Yellow
+  3: 'bg-nord-13/90 text-nord-0', // Yellow
+  4: 'bg-nord-12/90 text-nord-6', // Orange
+  5: 'bg-nord-11/90 text-nord-6'  // Red
 };
 
-// Helper function to get interpolated color classes
-function getSeverityColor(severity: number) {
+// Helper function to get color based on position in gradient
+function getGradientColor(severity: number) {
   const baseLevel = Math.floor(severity);
   const nextLevel = Math.min(baseLevel + 1, 5);
   const fraction = severity - baseLevel;
 
   // If it's a whole number, return the exact color
   if (fraction === 0) {
-    return severityColors[baseLevel as keyof typeof severityColors];
+    return severityGradientColors[baseLevel as keyof typeof severityGradientColors];
   }
 
   // For decimal values, choose the color closer to the actual value
   return fraction < 0.5 
-    ? severityColors[baseLevel as keyof typeof severityColors]
-    : severityColors[nextLevel as keyof typeof severityColors];
+    ? severityGradientColors[baseLevel as keyof typeof severityGradientColors]
+    : severityGradientColors[nextLevel as keyof typeof severityGradientColors];
 }
 
 interface SeverityIndicatorProps {
@@ -72,31 +72,47 @@ export function SeverityIndicator({ severity }: SeverityIndicatorProps) {
         onMouseLeave={() => setShowDefinition(false)}
       >
         {/* Background track */}
-        <div className="absolute left-3 right-3 h-2 bg-gray-200 rounded-full">
-          <div className="absolute left-0 top-0 h-full w-full rounded-full bg-gradient-to-r from-green-200 via-yellow-200 to-red-200" />
+        <div className="absolute left-3 right-3 h-2 bg-nord-4 dark:bg-nord-2 rounded-full">
+          <div className="absolute left-0 top-0 h-full w-full rounded-full bg-gradient-to-r from-nord-14/80 via-nord-13/80 to-nord-11/80" />
         </div>
         
-        {/* Severity pill */}
-        <motion.div
-          initial={{ x: -20, opacity: 0 }}
-          animate={{ x: 0, opacity: 1 }}
-          className={`absolute h-8 px-3 rounded-full ${getSeverityColor(severity)} flex items-center shadow-md cursor-help font-medium`}
-          style={{ 
-            left: `calc(${positionPercentage}% + 12px)`,
-            transform: 'translateX(-50%)'
-          }}
-        >
-          <span className="text-sm font-medium whitespace-nowrap">
-            Level {severity % 1 === 0 ? severity : severity.toFixed(1)}
-          </span>
-        </motion.div>
+        {/* Container for pill to ensure proper positioning */}
+        <div className="absolute left-3 right-3 h-full">
+          {/* Severity pill */}
+          <motion.div
+            initial={{ left: '0%' }}
+            animate={{ 
+              left: `${positionPercentage}%`
+            }}
+            transition={{ 
+              type: "spring",
+              stiffness: 60,
+              damping: 12,
+              mass: 0.5,
+              duration: 1.5
+            }}
+            className={`absolute h-8 px-3 rounded-full ${getGradientColor(severity)} flex items-center shadow-md cursor-help font-medium z-10`}
+            style={{ 
+              transform: 'translate(-50%, -25%)'
+            }}
+          >
+            <motion.span 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.5 }}
+              className="text-sm font-medium whitespace-nowrap"
+            >
+              Level {severity % 1 === 0 ? severity : severity.toFixed(1)}
+            </motion.span>
+          </motion.div>
+        </div>
 
         {/* Tick marks */}
         <div className="absolute left-3 right-3 flex justify-between mt-6">
           {[1, 2, 3, 4, 5].map(level => (
             <div key={level} className="flex flex-col items-center">
-              <div className="w-px h-2 bg-gray-300" />
-              <span className="text-xs text-gray-500 mt-1">{level}</span>
+              <div className="w-px h-2 bg-nord-3 dark:bg-nord-4" />
+              <span className="text-xs text-nord-3 dark:text-nord-4">{level}</span>
             </div>
           ))}
         </div>
@@ -107,7 +123,7 @@ export function SeverityIndicator({ severity }: SeverityIndicatorProps) {
         <motion.div
           initial={{ opacity: 0, y: -5 }}
           animate={{ opacity: 1, y: 0 }}
-          className={`absolute z-10 bottom-full mb-2 p-3 rounded-lg shadow-lg ${getSeverityColor(severity)} bg-opacity-95 max-w-xs text-sm`}
+          className={`absolute z-20 bottom-full mb-2 p-3 rounded-lg shadow-lg ${getGradientColor(severity)} bg-opacity-95 max-w-xs text-sm`}
           style={{ 
             left: `calc(${positionPercentage}% + 12px)`,
             transform: 'translateX(-50%)'
@@ -146,8 +162,8 @@ export function ListCard({ title, items, delay = 0 }: ListCardProps) {
             transition={{ duration: 0.3, delay: delay + index * 0.1 }}
             className="flex items-start"
           >
-            <span className="text-[#4a8199] mr-2">•</span>
-            <span className="text-[#515f66]">{item}</span>
+            <span className="text-nord-10 mr-2">•</span>
+            <span className="text-nord-0 dark:text-nord-6">{item}</span>
           </motion.li>
         ))}
       </ul>

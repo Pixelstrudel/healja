@@ -3,41 +3,69 @@
 @tailwind utilities;
 
 :root {
-  --foreground-rgb: 81, 95, 102;  /* #515f66 */
-  --background-start-rgb: 246, 248, 250;
-  --background-end-rgb: 255, 255, 255;
-  --primary: 74, 129, 153;  /* #4a8199 */
-  --secondary: 118, 148, 163;  /* #7694a3 */
-  --accent: 165, 204, 219;  /* #a5ccdb */
+  /* Nord Theme Colors */
+  --nord0: #2E3440;  /* Polar Night - Dark */
+  --nord1: #3B4252;  /* Polar Night - Darker */
+  --nord2: #434C5E;  /* Polar Night - Medium */
+  --nord3: #4C566A;  /* Polar Night - Light */
+  --nord4: #D8DEE9;  /* Snow Storm - Darkest */
+  --nord5: #E5E9F0;  /* Snow Storm - Medium */
+  --nord6: #ECEFF4;  /* Snow Storm - Lightest */
+  --nord7: #8FBCBB;  /* Frost - Sage */
+  --nord8: #88C0D0;  /* Frost - Light Blue */
+  --nord9: #81A1C1;  /* Frost - Medium Blue */
+  --nord10: #5E81AC; /* Frost - Dark Blue */
+  --nord11: #BF616A; /* Aurora - Red */
+  --nord12: #D08770; /* Aurora - Orange */
+  --nord13: #EBCB8B; /* Aurora - Yellow */
+  --nord14: #A3BE8C; /* Aurora - Green */
+  --nord15: #B48EAD; /* Aurora - Purple */
+
+  /* Application Theme */
+  --foreground: var(--nord0);
+  --background-start: var(--nord6);
+  --background-end: var(--nord5);
+  --primary: var(--nord10);
+  --secondary: var(--nord9);
+  --accent: var(--nord8);
+  --success: var(--nord14);
+  --warning: var(--nord13);
+  --error: var(--nord11);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --foreground: var(--nord4);
+    --background-start: var(--nord0);
+    --background-end: var(--nord1);
   }
 }
 
+@keyframes titleGradient {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+.animate-title {
+  background-size: 200% auto;
+  animation: titleGradient 6s ease-in-out infinite;
+}
+
 body {
-  color: rgb(var(--foreground-rgb));
+  color: var(--foreground);
   background: linear-gradient(
     to bottom,
-    rgb(var(--background-start-rgb)),
-    rgb(var(--background-end-rgb))
+    var(--background-start),
+    var(--background-end)
   );
   font-family: Arial, Helvetica, sans-serif;
-}
-
-/* Nordic-inspired smooth transitions */
-* {
-  transition-property: background-color, border-color, color, fill, stroke;
-  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
-  transition-duration: 150ms;
-}
-
-/* Smooth scrolling */
-html {
-  scroll-behavior: smooth;
 }
 
 /* Custom scrollbar */
@@ -47,14 +75,45 @@ html {
 }
 
 ::-webkit-scrollbar-track {
-  background: rgb(var(--background-start-rgb));
+  background: var(--background-start);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgb(var(--secondary));
+  background: var(--secondary);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgb(var(--primary));
+  background: var(--primary);
+}
+
+/* Dark mode adjustments */
+@media (prefers-color-scheme: dark) {
+  ::-webkit-scrollbar-track {
+    background: var(--nord1);
+  }
+  
+  ::-webkit-scrollbar-thumb {
+    background: var(--nord3);
+  }
+  
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--nord4);
+  }
+}
+
+/* Remove all previous transition-related code and replace with these focused styles */
+@layer utilities {
+  .hover-bg {
+    transition: background-color 200ms ease;
+  }
+  
+  .hover-border {
+    transition: border-color 200ms ease;
+  }
+}
+
+/* Smooth scrolling */
+html {
+  scroll-behavior: smooth;
 }

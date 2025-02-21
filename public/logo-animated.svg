@@ -11,7 +11,7 @@
       }
 
       .cls-1, .cls-2, .cls-3, .cls-4, .cls-5 {
-        stroke: #fff;
+        stroke: #ECEFF4;
         stroke-miterlimit: 10;
       }
 
@@ -20,17 +20,17 @@
       }
 
       .cls-3 {
-        fill: #7694a3;
+        fill: #81A1C1;
         stroke-width: 8px;
       }
 
       .cls-4 {
-        fill: #4a8199;
+        fill: #5E81AC;
         stroke-width: 12px;
       }
 
       .cls-5 {
-        fill: #515f66;
+        fill: #4C566A;
         stroke-width: 11px;
       }
 
@@ -39,7 +39,7 @@
       }
 
       .cls-7 {
-        fill: #a5ccdb;
+        fill: #88C0D0;
       }
 
       @keyframes gentleWave {

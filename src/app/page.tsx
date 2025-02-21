@@ -8,6 +8,69 @@ import { Card, ListCard, SeverityIndicator } from '@/components/Card';
 import { TherapistResponse } from '@/lib/openrouter';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
+import ReactMarkdown from 'react-markdown';
+import { 
+  saveAnalysis as dbSaveAnalysis,
+  getAllAnalyses,
+  deleteAnalysis as dbDeleteAnalysis,
+  toggleFavorite,
+  updateLastViewed,
+  getFavoriteAnalyses,
+  getRecentlyViewed,
+  SavedAnalysis
+} from '@/lib/db';
+
+const getGradientColor = (severity: number) => {
+  switch (Math.round(severity)) {
+    case 1:
+      return 'bg-nord-14/90 text-nord-0'; // Green
+    case 2:
+      return 'bg-nord-14/90 text-nord-0'; // Green to Yellow
+    case 3:
+      return 'bg-nord-13/90 text-nord-0'; // Yellow
+    case 4:
+      return 'bg-nord-12/90 text-nord-6'; // Orange
+    case 5:
+      return 'bg-nord-11/90 text-nord-6'; // Red
+    default:
+      return 'bg-nord-3 text-nord-6';
+  }
+};
+
+const getMatchContext = (text: string, searchQuery: string, contextLength: number = 100): string => {
+  if (!searchQuery) return text.slice(0, contextLength);
+  
+  const index = text.toLowerCase().indexOf(searchQuery.toLowerCase());
+  if (index === -1) return text.slice(0, contextLength);
+  
+  const start = Math.max(0, index - contextLength / 2);
+  const end = Math.min(text.length, index + searchQuery.length + contextLength / 2);
+  
+  let context = text.slice(start, end);
+  if (start > 0) context = '...' + context;
+  if (end < text.length) context = context + '...';
+  
+  return context;
+};
+
+const HighlightedText = ({ text, searchQuery }: { text: string; searchQuery: string }) => {
+  if (!searchQuery) return <>{text}</>;
+  
+  const parts = text.split(new RegExp(`(${searchQuery})`, 'gi'));
+  return (
+    <>
+      {parts.map((part, i) => 
+        part.toLowerCase() === searchQuery.toLowerCase() ? (
+          <span key={i} className="bg-nord-10/20 dark:bg-nord-10/30 text-nord-0 dark:text-nord-6 rounded px-0.5">
+            {part}
+          </span>
+        ) : (
+          part
+        )
+      )}
+    </>
+  );
+};
 
 const calmingQuotes = [
   "Your thoughts are like waves on the ocean - they rise, fall, and eventually return to calm",
@@ -37,14 +100,14 @@ function LoadingWave() {
     <motion.div 
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      className="max-w-4xl mx-auto p-8 rounded-lg bg-white shadow-md"
+      className="max-w-4xl mx-auto p-8 rounded-lg bg-nord-6 dark:bg-nord-2 border border-nord-4 dark:border-nord-3 hover:border-nord-4/80 dark:hover:border-nord-3/80 hover-border shadow-md"
     >
       <div className="flex flex-col items-center space-y-6">
         <div className="flex space-x-2">
           {[...Array(4)].map((_, i) => (
             <motion.div
               key={i}
-              className="w-3 h-3 rounded-full bg-[#4a8199]"
+              className="w-3 h-3 rounded-full bg-nord-10/80"
               animate={{
                 y: ["0%", "-50%", "0%"],
                 opacity: [1, 0.5, 1],
@@ -58,7 +121,7 @@ function LoadingWave() {
             />
           ))}
         </div>
-        <p className="text-[#7694a3] font-medium">Analyzing your concern...</p>
+        <p className="text-nord-0 dark:text-nord-4 font-medium">Analyzing your concern...</p>
         
         <motion.div
           key={quoteIndex}
@@ -71,7 +134,7 @@ function LoadingWave() {
           }}
           className="text-center max-w-lg min-h-[3rem] flex items-center justify-center"
         >
-          <p className="text-[#515f66] italic">{calmingQuotes[quoteIndex]}</p>
+          <p className="text-nord-0 dark:text-nord-4 italic">{calmingQuotes[quoteIndex]}</p>
         </motion.div>
       </div>
     </motion.div>
@@ -82,28 +145,57 @@ export default function Home() {
   const [content, setContent] = useState('');
   const [includeRebuttals, setIncludeRebuttals] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [showIntro, setShowIntro] = useState(true);
   const [response, setResponse] = useState<TherapistResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [savedAnalyses, setSavedAnalyses] = useState<Array<{
-    id: string;
-    date: string;
-    content: string;
-    summary: string;
-    response: TherapistResponse;
-  }>>([]);
+  const [savedAnalyses, setSavedAnalyses] = useState<SavedAnalysis[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
   const [showSavedAnalyses, setShowSavedAnalyses] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [exportingPdf, setExportingPdf] = useState<string | null>(null);
   const analysisRef = useRef<HTMLDivElement>(null);
   const [openExportMenu, setOpenExportMenu] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'all' | 'favorites' | 'recent'>('all');
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
 
-  // Load saved analyses on mount
+  // Load saved analyses and preferences on mount
   useEffect(() => {
-    const saved = localStorage.getItem('healja-analyses');
-    if (saved) {
-      setSavedAnalyses(JSON.parse(saved));
+    const loadAnalyses = async () => {
+      setIsLoadingHistory(true);
+      try {
+        let analyses;
+        switch (viewMode) {
+          case 'favorites':
+            analyses = await getFavoriteAnalyses();
+            break;
+          case 'recent':
+            analyses = await getRecentlyViewed();
+            break;
+          default:
+            analyses = await getAllAnalyses();
+        }
+        setSavedAnalyses(analyses);
+      } catch (error) {
+        console.error('Error loading analyses:', error);
+      } finally {
+        setIsLoadingHistory(false);
+      }
+    };
+
+    loadAnalyses();
+    
+    // Load what-if preference
+    const savedWhatIf = localStorage.getItem('healja-what-if');
+    if (savedWhatIf !== null) {
+      setIncludeRebuttals(JSON.parse(savedWhatIf));
     }
-  }, []);
+
+    // Check if user has seen intro
+    const hasSeenIntro = localStorage.getItem('healja-seen-intro');
+    if (hasSeenIntro) {
+      setShowIntro(false);
+    }
+  }, [viewMode]);
 
   // Add click outside handler
   useEffect(() => {
@@ -117,30 +209,47 @@ export default function Home() {
     return () => document.removeEventListener('click', handleClickOutside);
   }, [openExportMenu]);
 
-  const saveAnalysis = (content: string, response: TherapistResponse) => {
-    const newAnalysis = {
-      id: Date.now().toString(),
-      date: new Date().toLocaleString(),
-      content,
-      summary: response.summary,
-      response
-    };
-    
-    const updatedAnalyses = [newAnalysis, ...savedAnalyses];
-    localStorage.setItem('healja-analyses', JSON.stringify(updatedAnalyses));
-    setSavedAnalyses(updatedAnalyses);
+  const saveAnalysis = async (content: string, response: TherapistResponse) => {
+    try {
+      const newAnalysis = await dbSaveAnalysis(content, response);
+      setSavedAnalyses(prev => [newAnalysis, ...prev]);
+    } catch (error) {
+      console.error('Error saving analysis:', error);
+    }
   };
 
-  const loadAnalysis = (savedAnalysis: typeof savedAnalyses[0]) => {
-    setContent(savedAnalysis.content);
-    setResponse(savedAnalysis.response);
-    setShowSavedAnalyses(false);
+  const loadAnalysis = async (savedAnalysis: typeof savedAnalyses[0]) => {
+    try {
+      await updateLastViewed(savedAnalysis.id);
+      setContent(savedAnalysis.content);
+      setResponse(savedAnalysis.response);
+      setShowSavedAnalyses(false);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } catch (error) {
+      console.error('Error updating last viewed:', error);
+    }
   };
 
-  const deleteAnalysis = (id: string) => {
-    const updatedAnalyses = savedAnalyses.filter(analysis => analysis.id !== id);
-    localStorage.setItem('healja-analyses', JSON.stringify(updatedAnalyses));
-    setSavedAnalyses(updatedAnalyses);
+  const deleteAnalysis = async (id: string) => {
+    try {
+      await dbDeleteAnalysis(id);
+      setSavedAnalyses(prev => prev.filter(analysis => analysis.id !== id));
+    } catch (error) {
+      console.error('Error deleting analysis:', error);
+    }
+  };
+
+  const handleToggleFavorite = async (id: string) => {
+    try {
+      const updatedAnalysis = await toggleFavorite(id);
+      setSavedAnalyses(prev => 
+        prev.map(analysis => 
+          analysis.id === id ? updatedAnalysis : analysis
+        )
+      );
+    } catch (error) {
+      console.error('Error toggling favorite:', error);
+    }
   };
 
   const generateMarkdown = (analysis: typeof savedAnalyses[0]) => {
@@ -341,7 +450,7 @@ ${rebuttal.response}`
       }
       
       setResponse(data);
-      saveAnalysis(content, data);
+      await saveAnalysis(content, data);
     } catch (error) {
       console.error('Error:', error);
       setError(error instanceof Error ? error.message : 'An unexpected error occurred');
@@ -351,8 +460,17 @@ ${rebuttal.response}`
     }
   };
 
+  const filteredAnalyses = savedAnalyses.filter(analysis => {
+    const searchLower = searchQuery.toLowerCase();
+    return (
+      analysis.content.toLowerCase().includes(searchLower) ||
+      analysis.summary.toLowerCase().includes(searchLower) ||
+      analysis.tags.some(tag => tag.toLowerCase().includes(searchLower))
+    );
+  });
+
   return (
-    <main className="min-h-screen bg-gray-50">
+    <main className="min-h-screen bg-nord-6 dark:bg-nord-0">
       <div className="max-w-4xl mx-auto px-4 py-8">
         <motion.div
           initial={{ opacity: 0, y: -20 }}
@@ -366,104 +484,212 @@ ${rebuttal.response}`
             className="w-20 h-20"
           />
           <div className="flex-1">
-            <h1 className="text-4xl font-bold text-[#515f66] mb-2">Healja</h1>
-            <p className="text-lg text-[#7694a3]">
+            <h1 className="text-4xl font-bold mb-2">
+              <span className="inline-block bg-gradient-to-r from-nord-10 via-nord-9 to-nord-8 dark:from-nord-7 dark:via-nord-8 dark:to-nord-10 text-transparent bg-clip-text animate-title">
+                Healja
+              </span>
+            </h1>
+            <p className="text-lg text-nord-3 dark:text-nord-4">
               Share your concerns and receive a calming, rational perspective.
             </p>
           </div>
           <button
             onClick={() => setShowSavedAnalyses(!showSavedAnalyses)}
-            className="px-4 py-2 rounded-lg text-[#4a8199] font-medium transition-all duration-200 hover:bg-[#4a8199]/10"
+            className="px-4 py-2 rounded-lg text-nord-10 font-medium hover-bg hover:bg-nord-10/10"
           >
             {showSavedAnalyses ? 'Close History' : 'View History'}
           </button>
         </motion.div>
 
-        {showSavedAnalyses && savedAnalyses.length > 0 && (
+        {showSavedAnalyses && (
           <motion.div
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
             className="mb-8 space-y-4"
           >
-            <h2 className="text-xl font-semibold text-[#515f66] mb-4">Past Analyses</h2>
-            <div className="space-y-4">
-              {savedAnalyses.map((analysis) => (
-                <motion.div
-                  key={analysis.id}
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  className="p-4 bg-white rounded-lg border border-[#a5ccdb]/20 hover:border-[#a5ccdb]/40 transition-colors"
-                >
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center space-x-3">
-                      <div className="w-2 h-2 rounded-full bg-[#4a8199]" />
-                      <p className="font-medium text-[#515f66]">{analysis.summary}</p>
-                    </div>
-                    <div className="space-x-2">
-                      <div className="relative inline-block export-menu-container">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setOpenExportMenu(openExportMenu === analysis.id ? null : analysis.id);
-                          }}
-                          className="px-3 py-1 rounded text-sm text-[#4a8199] hover:bg-[#4a8199]/10 transition-colors"
-                          title="Export options"
-                        >
-                          Export ▾
-                        </button>
-                        <AnimatePresence>
-                          {openExportMenu === analysis.id && (
-                            <motion.div
-                              initial={{ opacity: 0, y: -5 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              exit={{ opacity: 0, y: -5 }}
-                              className="absolute right-0 mt-1 w-32 bg-white rounded-lg shadow-lg border border-gray-200 z-50"
-                            >
-                              <button
-                                onClick={() => {
-                                  downloadMarkdown(analysis);
-                                  setOpenExportMenu(null);
-                                }}
-                                className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 text-[#515f66] rounded-t-lg"
-                              >
-                                Markdown
-                              </button>
-                              <button
-                                onClick={() => {
-                                  downloadPdf(analysis);
-                                  setOpenExportMenu(null);
-                                }}
-                                className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 text-[#515f66] border-t border-gray-100 rounded-b-lg"
-                              >
-                                PDF
-                              </button>
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
-                      </div>
-                      <button
-                        onClick={() => loadAnalysis(analysis)}
-                        className="px-3 py-1 rounded text-sm text-[#4a8199] hover:bg-[#4a8199]/10 transition-colors"
-                      >
-                        Load
-                      </button>
-                      <button
-                        onClick={() => setDeletingId(analysis.id)}
-                        className="px-3 py-1 rounded text-sm text-red-500 hover:bg-red-50 transition-colors"
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </div>
-                  <div className="flex justify-between items-baseline">
-                    <p className="text-[#7694a3] text-sm line-clamp-1 italic flex-1 mr-4">
-                      {analysis.content}
-                    </p>
-                    <span className="text-xs text-[#7694a3] whitespace-nowrap">{analysis.date}</span>
-                  </div>
-                </motion.div>
-              ))}
+            <div className="flex flex-col space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-semibold text-nord-0 dark:text-nord-6">Past Analyses</h2>
+                <div className="flex space-x-2">
+                  <button
+                    onClick={() => setViewMode('all')}
+                    className={`px-3 py-1 rounded text-sm ${
+                      viewMode === 'all'
+                        ? 'bg-nord-10 text-nord-6'
+                        : 'text-nord-10 hover:bg-nord-10/10 hover-bg'
+                    }`}
+                  >
+                    All
+                  </button>
+                  <button
+                    onClick={() => setViewMode('favorites')}
+                    className={`px-3 py-1 rounded text-sm ${
+                      viewMode === 'favorites'
+                        ? 'bg-nord-10 text-nord-6'
+                        : 'text-nord-10 hover:bg-nord-10/10 hover-bg'
+                    }`}
+                  >
+                    Favorites
+                  </button>
+                  <button
+                    onClick={() => setViewMode('recent')}
+                    className={`px-3 py-1 rounded text-sm ${
+                      viewMode === 'recent'
+                        ? 'bg-nord-10 text-nord-6'
+                        : 'text-nord-10 hover:bg-nord-10/10 hover-bg'
+                    }`}
+                  >
+                    Recent
+                  </button>
+                </div>
+              </div>
+              <div className="relative">
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search analyses..."
+                  className="w-full px-4 py-2 bg-nord-6 dark:bg-nord-1 text-nord-0 dark:text-nord-6 border border-nord-4 dark:border-nord-3 rounded-lg focus:ring-2 focus:ring-nord-10 focus:border-transparent placeholder-nord-3 dark:placeholder-nord-4 transition-all"
+                />
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery('')}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-nord-3 dark:text-nord-4 hover:text-nord-0 dark:hover:text-nord-6 transition-colors"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
             </div>
+
+            {isLoadingHistory ? (
+              <div className="flex justify-center py-8">
+                <div className="flex space-x-2">
+                  {[...Array(3)].map((_, i) => (
+                    <motion.div
+                      key={i}
+                      className="w-2 h-2 rounded-full bg-nord-10/50"
+                      animate={{
+                        y: ["0%", "-50%", "0%"],
+                        opacity: [1, 0.5, 1],
+                      }}
+                      transition={{
+                        duration: 1,
+                        repeat: Infinity,
+                        delay: i * 0.2,
+                      }}
+                    />
+                  ))}
+                </div>
+              </div>
+            ) : filteredAnalyses.length > 0 ? (
+              <div className="space-y-4">
+                {filteredAnalyses.map((analysis) => (
+                  <motion.div
+                    key={analysis.id}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    className="p-4 bg-nord-6 dark:bg-nord-1 rounded-lg border border-nord-4/20 hover:border-nord-4/40 hover-border"
+                  >
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center space-x-3">
+                        <motion.button
+                          onClick={() => handleToggleFavorite(analysis.id)}
+                          className={`text-lg ${
+                            analysis.favorite ? 'text-nord-13' : 'text-nord-3 dark:text-nord-4'
+                          } hover:scale-110 transition-transform`}
+                          whileHover={{ scale: 1.1 }}
+                          whileTap={{ scale: 0.95 }}
+                        >
+                          {analysis.favorite ? '★' : '☆'}
+                        </motion.button>
+                        <div className="flex items-center space-x-3">
+                          <div className={`px-2 py-0.5 rounded-full text-xs font-medium ${getGradientColor(analysis.response.severity)}`}>
+                            Level {analysis.response.severity}
+                          </div>
+                          <p className="font-medium text-nord-0 dark:text-nord-6">{analysis.summary}</p>
+                        </div>
+                      </div>
+                      <div className="space-x-2">
+                        <div className="relative inline-block export-menu-container">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setOpenExportMenu(openExportMenu === analysis.id ? null : analysis.id);
+                            }}
+                            className="px-3 py-1 rounded text-sm text-nord-10 hover:bg-nord-10/10 hover-bg"
+                            title="Export options"
+                          >
+                            Export ▾
+                          </button>
+                          <AnimatePresence>
+                            {openExportMenu === analysis.id && (
+                              <motion.div
+                                initial={{ opacity: 0, y: -5 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -5 }}
+                                className="absolute right-0 mt-1 w-32 bg-nord-6 dark:bg-nord-1 rounded-lg shadow-lg border border-nord-4/20 z-50"
+                              >
+                                <button
+                                  onClick={() => {
+                                    downloadMarkdown(analysis);
+                                    setOpenExportMenu(null);
+                                  }}
+                                  className="w-full px-4 py-2 text-left text-sm hover:bg-nord-5 dark:hover:bg-nord-2 text-nord-0 dark:text-nord-6 rounded-t-lg"
+                                >
+                                  Markdown
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    downloadPdf(analysis);
+                                    setOpenExportMenu(null);
+                                  }}
+                                  className="w-full px-4 py-2 text-left text-sm hover:bg-nord-5 dark:hover:bg-nord-2 text-nord-0 dark:text-nord-6 border-t border-nord-4/20 rounded-b-lg"
+                                >
+                                  PDF
+                                </button>
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+                        </div>
+                        <button
+                          onClick={() => loadAnalysis(analysis)}
+                          className="px-3 py-1 rounded text-sm text-nord-10 hover:bg-nord-10/10 hover-bg"
+                        >
+                          Load
+                        </button>
+                        <button
+                          onClick={() => setDeletingId(analysis.id)}
+                          className="px-3 py-1 rounded text-sm text-nord-11 hover:bg-nord-11/10 hover-bg"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                    <div className="flex justify-between items-baseline">
+                      <p className="text-nord-3 dark:text-nord-4 text-sm flex-1 mr-4 italic">
+                        <HighlightedText 
+                          text={getMatchContext(
+                            searchQuery.toLowerCase().includes(analysis.summary.toLowerCase())
+                              ? analysis.summary
+                              : analysis.content,
+                            searchQuery
+                          )}
+                          searchQuery={searchQuery}
+                        />
+                      </p>
+                      <span className="text-xs text-nord-3 dark:text-nord-4 whitespace-nowrap">
+                        {new Date(analysis.createdAt).toLocaleString()}
+                      </span>
+                    </div>
+                  </motion.div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-8 text-nord-3 dark:text-nord-4">
+                No analyses found for this view.
+              </div>
+            )}
           </motion.div>
         )}
 
@@ -474,7 +700,7 @@ ${rebuttal.response}`
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50"
+              className="fixed inset-0 bg-nord-0/50 flex items-center justify-center p-4 z-50"
               onClick={(e) => {
                 if (e.target === e.currentTarget) setDeletingId(null);
               }}
@@ -483,18 +709,18 @@ ${rebuttal.response}`
                 initial={{ scale: 0.95, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
                 exit={{ scale: 0.95, opacity: 0 }}
-                className="bg-white rounded-lg p-6 max-w-md w-full shadow-xl"
+                className="bg-nord-6 dark:bg-nord-1 rounded-lg p-6 max-w-md w-full shadow-xl"
               >
-                <h3 className="text-lg font-semibold text-[#515f66] mb-2">
+                <h3 className="text-lg font-semibold text-nord-0 dark:text-nord-6 mb-2">
                   Delete Analysis?
                 </h3>
-                <p className="text-[#7694a3] mb-6">
+                <p className="text-nord-3 dark:text-nord-4 mb-6">
                   Are you sure you want to delete this analysis? This action cannot be undone.
                 </p>
                 <div className="flex justify-end space-x-3">
                   <button
                     onClick={() => setDeletingId(null)}
-                    className="px-4 py-2 rounded text-[#515f66] hover:bg-gray-100 transition-colors"
+                    className="px-4 py-2 rounded text-nord-0 dark:text-nord-6 hover:bg-nord-5 dark:hover:bg-nord-2 hover-bg"
                   >
                     Cancel
                   </button>
@@ -505,7 +731,7 @@ ${rebuttal.response}`
                         setDeletingId(null);
                       }
                     }}
-                    className="px-4 py-2 rounded bg-red-500 text-white hover:bg-red-600 transition-colors"
+                    className="px-4 py-2 rounded bg-nord-11 text-nord-6 hover:bg-nord-11/90 hover-bg"
                   >
                     Delete
                   </button>
@@ -521,6 +747,7 @@ ${rebuttal.response}`
             onChange={setContent}
             disabled={isLoading}
             placeholder="What's on your mind? Share your thoughts and concerns..."
+            className="bg-nord-5 dark:bg-nord-1 text-nord-0 dark:text-nord-4 border-nord-4 dark:border-nord-3 focus:ring-nord-10 placeholder-nord-3 dark:placeholder-nord-4"
           />
 
           <div className="flex items-center justify-between">
@@ -528,18 +755,21 @@ ${rebuttal.response}`
               <div className="flex items-center">
                 <Switch
                   checked={includeRebuttals}
-                  onChange={setIncludeRebuttals}
+                  onChange={(checked) => {
+                    setIncludeRebuttals(checked);
+                    localStorage.setItem('healja-what-if', JSON.stringify(checked));
+                  }}
                   className={`${
-                    includeRebuttals ? 'bg-[#4a8199]' : 'bg-gray-200'
-                  } relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-[#7694a3] focus:ring-offset-2`}
+                    includeRebuttals ? 'bg-nord-10' : 'bg-nord-4'
+                  } relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-nord-9 focus:ring-offset-2`}
                 >
                   <span
                     className={`${
                       includeRebuttals ? 'translate-x-6' : 'translate-x-1'
-                    } inline-block h-4 w-4 transform rounded-full bg-white transition-transform`}
+                    } inline-block h-4 w-4 transform rounded-full bg-nord-6 transition-transform`}
                   />
                 </Switch>
-                <Switch.Label className="ml-3 text-sm text-[#515f66]">
+                <Switch.Label className="ml-3 text-sm text-nord-0 dark:text-nord-6">
                   Include "What if" scenarios and rebuttals
                 </Switch.Label>
               </div>
@@ -548,10 +778,10 @@ ${rebuttal.response}`
             <button
               onClick={handleSubmit}
               disabled={!content.trim() || isLoading}
-              className={`px-6 py-2 rounded-lg text-white font-medium transition-all duration-200 ${
+              className={`px-6 py-2 rounded-lg font-medium transition-all ${
                 !content.trim() || isLoading
-                  ? 'bg-gray-300 cursor-not-allowed'
-                  : 'bg-[#4a8199] hover:bg-[#7694a3]'
+                  ? 'bg-nord-3/30 dark:bg-nord-3/20 text-nord-3 dark:text-nord-4/50 cursor-not-allowed'
+                  : 'bg-nord-10 text-nord-6 hover:bg-nord-9 hover-bg'
               }`}
             >
               {isLoading ? 'Analyzing...' : 'Analyze'}
@@ -562,7 +792,7 @@ ${rebuttal.response}`
             <motion.div
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
-              className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700"
+              className="p-4 bg-nord-11/10 border border-nord-11/20 rounded-lg text-nord-11"
             >
               {error}
             </motion.div>
@@ -581,7 +811,11 @@ ${rebuttal.response}`
               <Card title="Overview" delay={0.2}>
                 <div className="space-y-4">
                   {response?.severity && <SeverityIndicator severity={response.severity} />}
-                  <p className="text-gray-700 mt-4">{response?.explanation}</p>
+                  <div className="p-4 bg-nord-6 dark:bg-nord-2 rounded-lg border border-nord-4 dark:border-nord-3 hover:border-nord-4/80 dark:hover:border-nord-3/80 hover-border">
+                    <div className="prose dark:prose-dark max-w-none">
+                      <ReactMarkdown>{response?.explanation || ''}</ReactMarkdown>
+                    </div>
+                  </div>
                 </div>
               </Card>
 
@@ -593,19 +827,19 @@ ${rebuttal.response}`
                       initial={{ opacity: 0, y: 20 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ duration: 0.3, delay: 0.3 + index * 0.1 }}
-                      className="p-4 bg-gray-50 rounded-lg border border-[#a5ccdb]/20 hover:border-[#a5ccdb]/40 transition-colors"
+                      className="p-4 bg-nord-6 dark:bg-nord-2 rounded-lg border border-nord-4 dark:border-nord-3 hover:border-nord-4/80 dark:hover:border-nord-3/80 hover-border"
                     >
                       <div className="flex items-start space-x-4">
-                        <div className="flex-shrink-0 w-8 h-8 rounded-full bg-[#4a8199]/10 flex items-center justify-center">
-                          <span className="text-[#4a8199] font-semibold">{index + 1}</span>
+                        <div className="flex-shrink-0 w-8 h-8 rounded-full bg-nord-10/20 dark:bg-nord-10/30 flex items-center justify-center">
+                          <span className="text-nord-10 dark:text-nord-8 font-semibold">{index + 1}</span>
                         </div>
                         <div className="space-y-2 flex-1">
-                          <h4 className="text-[#515f66] font-semibold">
+                          <h4 className="text-nord-0 dark:text-nord-6 font-semibold">
                             {explanation.title}
                           </h4>
-                          <p className="text-[#7694a3] leading-relaxed">
-                            {explanation.content}
-                          </p>
+                          <div className="prose dark:prose-dark max-w-none">
+                            <ReactMarkdown>{explanation.content}</ReactMarkdown>
+                          </div>
                         </div>
                       </div>
                     </motion.div>
@@ -621,25 +855,21 @@ ${rebuttal.response}`
                       initial={{ opacity: 0, y: 20 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ duration: 0.3, delay: 0.6 + index * 0.1 }}
-                      className="p-4 bg-gray-50 rounded-lg border border-[#a5ccdb]/20 hover:border-[#a5ccdb]/40 transition-colors"
+                      className="p-4 bg-nord-6 dark:bg-nord-2 rounded-lg border border-nord-4 dark:border-nord-3 hover:border-nord-4/80 dark:hover:border-nord-3/80 hover-border"
                     >
                       <div className="flex items-start space-x-4">
-                        <div className="flex-shrink-0 w-8 h-8 rounded-full bg-[#4a8199]/10 flex items-center justify-center">
-                          <span className="text-[#4a8199] font-semibold">~</span>
+                        <div className="flex-shrink-0 w-8 h-8 rounded-full bg-nord-10/20 dark:bg-nord-10/30 flex items-center justify-center mt-0.5">
+                          <span className="text-nord-10 dark:text-nord-8 font-semibold leading-none">~</span>
                         </div>
-                        <div className="space-y-2.5 flex-1 pt-0.5">
-                          <h4 className="text-[#515f66] font-semibold">
+                        <div className="flex-1">
+                          <h4 className="text-nord-0 dark:text-nord-6 font-semibold">
                             {pattern.pattern}
                           </h4>
-                          <div className="space-y-2">
-                            <p className="text-[#7694a3] leading-relaxed">
-                              <span className="text-amber-600 font-semibold">Impact: </span>
-                              {pattern.impact}
-                            </p>
-                            <p className="text-[#7694a3] leading-relaxed">
-                              <span className="text-emerald-600 font-semibold">Solution: </span>
-                              {pattern.solution}
-                            </p>
+                          <div className="mt-2 space-y-2">
+                            <div className="prose dark:prose-dark max-w-none">
+                              <ReactMarkdown>{`**Impact:** ${pattern.impact}`}</ReactMarkdown>
+                              <ReactMarkdown>{`**Solution:** ${pattern.solution}`}</ReactMarkdown>
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -656,25 +886,31 @@ ${rebuttal.response}`
                       initial={{ opacity: 0, y: 20 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ duration: 0.3, delay: 0.9 + index * 0.1 }}
-                      className="p-4 bg-gray-50 rounded-lg border border-[#a5ccdb]/20 hover:border-[#a5ccdb]/40 transition-colors"
+                      className="p-4 bg-nord-6 dark:bg-nord-2 rounded-lg border border-nord-4 dark:border-nord-3 hover:border-nord-4/80 dark:hover:border-nord-3/80 hover-border"
                     >
                       <div className="flex items-start space-x-4">
-                        <div className="flex-shrink-0 w-8 h-8 rounded-full bg-[#4a8199]/10 flex items-center justify-center">
-                          <span className="text-[#4a8199] font-semibold">✦</span>
+                        <div className="flex-shrink-0 w-8 h-8 rounded-full bg-nord-10/20 dark:bg-nord-10/30 flex items-center justify-center mt-0.5">
+                          <span className="text-nord-10 dark:text-nord-8 font-semibold leading-none">✦</span>
                         </div>
-                        <div className="space-y-3 flex-1">
-                          <h4 className="text-[#515f66] font-semibold">
+                        <div className="flex-1">
+                          <h4 className="text-nord-0 dark:text-nord-6 font-semibold">
                             {strategy.strategy}
                           </h4>
-                          <p className="text-[#7694a3] leading-relaxed">{strategy.explanation}</p>
-                          <div className="space-y-2">
-                            <p className="text-[#4a8199] font-medium">How to:</p>
+                          <div className="mt-2">
+                            <div className="prose dark:prose-dark max-w-none">
+                              <ReactMarkdown>{strategy.explanation}</ReactMarkdown>
+                            </div>
+                          </div>
+                          <div className="mt-2 space-y-2">
+                            <p className="text-nord-10 dark:text-nord-8 font-medium">How to:</p>
                             {strategy.howTo.split('\n').filter(step => step.trim()).map((step, stepIndex) => (
                               <div key={stepIndex} className="flex items-center space-x-3">
-                                <div className="flex-shrink-0 w-6 h-6 rounded-full bg-[#a5ccdb]/20 flex items-center justify-center text-[#4a8199] font-medium text-sm">
-                                  {stepIndex + 1}
+                                <div className="flex-shrink-0 w-6 h-6 rounded-full bg-nord-10/20 dark:bg-nord-10/30 flex items-center justify-center">
+                                  <span className="text-nord-10 dark:text-nord-8 font-medium text-sm leading-none">{stepIndex + 1}</span>
                                 </div>
-                                <p className="text-[#7694a3] flex-1 leading-relaxed">{step}</p>
+                                <div className="prose dark:prose-dark max-w-none flex-1">
+                                  <ReactMarkdown>{step}</ReactMarkdown>
+                                </div>
                               </div>
                             ))}
                           </div>
@@ -694,17 +930,21 @@ ${rebuttal.response}`
                         initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ duration: 0.3, delay: 1.2 + index * 0.1 }}
-                        className="p-4 bg-gray-50 rounded-lg border border-[#a5ccdb]/20 hover:border-[#a5ccdb]/40 transition-colors"
+                        className="p-4 bg-nord-6 dark:bg-nord-2 rounded-lg border border-nord-4 dark:border-nord-3 hover:border-nord-4/80 dark:hover:border-nord-3/80 hover-border"
                       >
                         <div className="flex items-start space-x-4">
-                          <div className="flex-shrink-0 w-8 h-8 rounded-full bg-[#4a8199]/10 flex items-center justify-center">
-                            <span className="text-[#4a8199] font-semibold">?</span>
+                          <div className="flex-shrink-0 w-8 h-8 rounded-full bg-nord-10/20 dark:bg-nord-10/30 flex items-center justify-center mt-0.5">
+                            <span className="text-nord-10 dark:text-nord-8 font-semibold leading-none">?</span>
                           </div>
-                          <div className="space-y-3 flex-1">
-                            <p className="text-[#515f66] font-semibold">
+                          <div className="flex-1">
+                            <p className="text-nord-0 dark:text-nord-6 font-semibold">
                               {rebuttal.concern}
                             </p>
-                            <p className="text-[#7694a3] leading-relaxed">{rebuttal.response}</p>
+                            <div className="mt-2">
+                              <div className="prose dark:prose-dark max-w-none">
+                                <ReactMarkdown>{rebuttal.response}</ReactMarkdown>
+                              </div>
+                            </div>
                           </div>
                         </div>
                       </motion.div>
@@ -716,19 +956,19 @@ ${rebuttal.response}`
           )}
 
           {exportingPdf && (
-            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-              <div className="bg-white rounded-lg p-6 max-w-md w-full shadow-xl">
-                <h3 className="text-lg font-semibold text-[#515f66] mb-2">
+            <div className="fixed inset-0 bg-nord-0/50 flex items-center justify-center z-50">
+              <div className="bg-nord-6 dark:bg-nord-1 rounded-lg p-6 max-w-md w-full shadow-xl">
+                <h3 className="text-lg font-semibold text-nord-0 dark:text-nord-6 mb-2">
                   Generating PDF...
                 </h3>
-                <p className="text-[#7694a3]">
+                <p className="text-nord-3 dark:text-nord-4">
                   Please wait while we create your PDF document.
                 </p>
               </div>
             </div>
           )}
         </div>
-      </div>
+    </div>
     </main>
   );
 }
