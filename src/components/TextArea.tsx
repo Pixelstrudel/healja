@@ -35,7 +35,7 @@ export function TextArea({
       onChange={handleChange}
       placeholder={placeholder}
       disabled={disabled}
-      className={`w-full min-h-[150px] p-4 text-nord-0 dark:text-nord-6 bg-nord-6 dark:bg-nord-1 border border-nord-4 dark:border-nord-3 rounded-lg shadow-sm focus:ring-2 focus:ring-nord-10 focus:border-transparent resize-none transition-all duration-200 placeholder-nord-3 dark:placeholder-nord-4 ${className}`}
+      className={`w-full min-h-[120px] sm:min-h-[150px] p-3 sm:p-4 text-sm sm:text-base text-nord-0 dark:text-nord-6 bg-nord-6 dark:bg-nord-1 border border-nord-4 dark:border-nord-3 rounded-lg shadow-sm focus:ring-2 focus:ring-nord-10 focus:border-transparent resize-none transition-all duration-200 placeholder-nord-3 dark:placeholder-nord-4 ${className}`}
       style={{ overflow: 'hidden' }}
     />
   );

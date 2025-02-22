@@ -1290,32 +1290,32 @@ ${rebuttal.response}`
           />
         )}
       </AnimatePresence>
-      <div className="max-w-4xl mx-auto px-4 py-8">
+      <div className="max-w-4xl mx-auto px-4 py-4 sm:py-8">
         <motion.div
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5 }}
-          className="flex items-center gap-6 mb-12"
+          className="flex flex-col sm:flex-row items-center gap-4 sm:gap-6 mb-8 sm:mb-12"
         >
           <img 
             src="/logo-animated.svg" 
             alt="Healja Logo" 
-            className="w-20 h-20 cursor-pointer hover:scale-105 transition-transform"
+            className="w-16 h-16 sm:w-20 sm:h-20 cursor-pointer hover:scale-105 transition-transform"
             onClick={() => setShowWaveTransition(true)}
           />
-          <div className="flex-1">
-            <h1 className="text-4xl font-bold mb-2">
+          <div className="flex-1 text-center sm:text-left">
+            <h1 className="text-3xl sm:text-4xl font-bold mb-2">
               <span className="inline-block bg-gradient-to-r from-nord-10 via-nord-9 to-nord-8 dark:from-nord-7 dark:via-nord-8 dark:to-nord-10 text-transparent bg-clip-text animate-title">
                 Healja
               </span>
             </h1>
-            <p className="text-lg text-nord-3 dark:text-nord-4">
+            <p className="text-base sm:text-lg text-nord-3 dark:text-nord-4">
               Share your concerns and receive a calming, rational perspective.
             </p>
           </div>
           <button
             onClick={() => setShowSavedAnalyses(!showSavedAnalyses)}
-            className="px-4 py-2 rounded-lg text-nord-10 font-medium hover-bg hover:bg-nord-10/10"
+            className="w-full sm:w-auto px-4 py-2 rounded-lg text-nord-10 font-medium hover-bg hover:bg-nord-10/10"
           >
             {showSavedAnalyses ? 'Close History' : 'View History'}
           </button>
@@ -1983,7 +1983,7 @@ ${rebuttal.response}`
             />
           )}
 
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 sm:gap-0">
             <Switch.Group>
               <div className="flex items-center">
                 <Switch
@@ -2011,7 +2011,7 @@ ${rebuttal.response}`
             <button
               onClick={handleSubmit}
               disabled={!content.trim() || isLoading || isRecording}
-              className={`px-6 py-2 rounded-lg font-medium transition-all ${
+              className={`w-full sm:w-auto px-6 py-2 rounded-lg font-medium transition-all ${
                 !content.trim() || isLoading || isRecording
                   ? 'bg-nord-3/30 dark:bg-nord-3/20 text-nord-3 dark:text-nord-4/50 cursor-not-allowed'
                   : 'bg-nord-10 text-nord-6 hover:bg-nord-9 hover-bg'

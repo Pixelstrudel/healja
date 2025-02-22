@@ -13,9 +13,9 @@ export function Card({ title, children, delay = 0 }: CardProps) {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5, delay }}
-      className="bg-nord-5 dark:bg-nord-1 rounded-lg shadow-md p-6 mb-4 border border-nord-4/20 dark:border-nord-3/20"
+      className="bg-nord-5 dark:bg-nord-1 rounded-lg shadow-md p-4 sm:p-6 mb-4 border border-nord-4/20 dark:border-nord-3/20"
     >
-      <h3 className="text-lg font-semibold text-nord-0 dark:text-nord-4 mb-3">{title}</h3>
+      <h3 className="text-base sm:text-lg font-semibold text-nord-0 dark:text-nord-4 mb-2 sm:mb-3">{title}</h3>
       {children}
     </motion.div>
   );
