@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 
@@ -6,11 +6,16 @@ const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: "Healja - Mental Health Support",
-  description: "Get a calming, rational perspective on your concerns.",
+  description: "Share your concerns and receive a calming, rational perspective.",
+};
+
+export const viewport: Viewport = {
   themeColor: [
     { media: '(prefers-color-scheme: light)', color: '#ECEFF4' },
     { media: '(prefers-color-scheme: dark)', color: '#2E3440' }
-  ]
+  ],
+  width: 'device-width',
+  initialScale: 1,
 };
 
 export default function RootLayout({

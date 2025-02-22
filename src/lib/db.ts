@@ -59,41 +59,57 @@ class HealjaDatabase extends Dexie {
   }
 
   async initialize(): Promise<void> {
-    const tagCount = await this.tags.count();
-    if (tagCount === 0) {
-      // Add default tags
-      await this.tags.bulkPut([
-        {
-          name: 'What ifs',
-          color: '#88C0D0'
-        },
-        {
-          name: 'Level 1',
-          color: '#A3BE8C' // nord-14 (Green)
-        },
-        {
-          name: 'Level 2',
-          color: '#A3BE8C' // nord-14 (Green to Yellow)
-        },
-        {
-          name: 'Level 3',
-          color: '#EBCB8B' // nord-13 (Yellow)
-        },
-        {
-          name: 'Level 4',
-          color: '#D08770' // nord-12 (Orange)
-        },
-        {
-          name: 'Level 5',
-          color: '#BF616A' // nord-11 (Red)
-        }
-      ]);
+    try {
+      // Check if IndexedDB is supported
+      if (!window.indexedDB) {
+        throw new Error('Your browser does not support IndexedDB. Some features may not work.');
+      }
+
+      // Initialize database and add default tags if needed
+      const tagCount = await this.tags.count();
+      if (tagCount === 0) {
+        await this.tags.bulkPut([
+          {
+            name: 'What ifs',
+            color: '#88C0D0'
+          },
+          {
+            name: 'Level 1',
+            color: '#A3BE8C' // nord-14 (Green)
+          },
+          {
+            name: 'Level 2',
+            color: '#A3BE8C' // nord-14 (Green to Yellow)
+          },
+          {
+            name: 'Level 3',
+            color: '#EBCB8B' // nord-13 (Yellow)
+          },
+          {
+            name: 'Level 4',
+            color: '#D08770' // nord-12 (Orange)
+          },
+          {
+            name: 'Level 5',
+            color: '#BF616A' // nord-11 (Red)
+          }
+        ]);
+      }
+    } catch (error) {
+      console.error('Failed to initialize database:', error);
+      throw error;
     }
   }
 }
 
 const db = new HealjaDatabase();
-db.initialize().catch(console.error);
+
+// Initialize DB when the module loads in browser environment
+if (typeof window !== 'undefined') {
+  db.initialize().catch(error => {
+    console.error('Database initialization error:', error);
+  });
+}
 
 export async function saveAnalysis(
   content: string,
