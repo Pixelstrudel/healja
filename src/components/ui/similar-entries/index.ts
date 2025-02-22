@@ -1,0 +1,1 @@
+export { SimilarEntries } from './similar-entries'; 
