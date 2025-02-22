@@ -383,13 +383,13 @@ const ExpandableStep = ({ step, index }: { step: string; index: number }) => {
 
   if (!hasDetails) {
     return (
-      <div className="mt-2 first:mt-0">
-        <div className="w-full flex items-center px-3 py-2 rounded-lg">
-          <div className="flex-shrink-0 w-6 flex items-center justify-center">
-            <span className="text-nord-10 dark:text-nord-8 font-medium text-sm leading-none">{index + 1}.</span>
+      <div className="mt-1.5 sm:mt-2 first:mt-0">
+        <div className="w-full flex items-center px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg">
+          <div className="flex-shrink-0 w-4 sm:w-6 flex items-center justify-center">
+            <span className="text-nord-10 dark:text-nord-8 font-medium text-xs sm:text-sm leading-none">{index + 1}.</span>
           </div>
-          <div className="flex-1 ml-3">
-            <div className="prose dark:prose-dark max-w-none">
+          <div className="flex-1 ml-2 sm:ml-3">
+            <div className="prose prose-sm sm:prose dark:prose-dark max-w-none">
               <ReactMarkdown>{instruction}</ReactMarkdown>
             </div>
           </div>
@@ -399,20 +399,20 @@ const ExpandableStep = ({ step, index }: { step: string; index: number }) => {
   }
 
   return (
-    <div className="mt-2 first:mt-0">
+    <div className="mt-1.5 sm:mt-2 first:mt-0">
       <button
         onClick={() => setIsExpanded(!isExpanded)}
-        className="w-full flex items-center group px-3 py-2 rounded-lg hover:bg-nord-5/50 dark:hover:bg-nord-2/50 transition-colors duration-200"
+        className="w-full flex items-center group px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg hover:bg-nord-5/50 dark:hover:bg-nord-2/50 transition-colors duration-200"
       >
-        <div className="flex-shrink-0 w-6 flex items-center justify-center">
-          <span className="text-nord-10 dark:text-nord-8 font-medium text-sm leading-none">{index + 1}.</span>
+        <div className="flex-shrink-0 w-4 sm:w-6 flex items-center justify-center">
+          <span className="text-nord-10 dark:text-nord-8 font-medium text-xs sm:text-sm leading-none">{index + 1}.</span>
         </div>
-        <div className="flex-1 flex items-center justify-between ml-3">
-          <div className="prose dark:prose-dark max-w-none group-hover:text-nord-10 dark:group-hover:text-nord-8 transition-colors duration-200">
+        <div className="flex-1 flex items-center justify-between ml-2 sm:ml-3">
+          <div className="prose prose-sm sm:prose dark:prose-dark max-w-none group-hover:text-nord-10 dark:group-hover:text-nord-8 transition-colors duration-200">
             <ReactMarkdown>{instruction}</ReactMarkdown>
           </div>
           <motion.div 
-            className="ml-3 flex-shrink-0 relative w-5 h-5"
+            className="ml-2 sm:ml-3 flex-shrink-0 relative w-4 sm:w-5 h-4 sm:h-5"
             initial={false}
           >
             <motion.svg 
@@ -442,12 +442,12 @@ const ExpandableStep = ({ step, index }: { step: string; index: number }) => {
             transition={{ duration: 0.2 }}
             className="overflow-hidden"
           >
-            <div className="ml-9 mt-2 pl-4 border-l-2 border-nord-10/20 dark:border-nord-10/30">
+            <div className="ml-6 sm:ml-9 mt-1.5 sm:mt-2 pl-2 sm:pl-4 border-l-2 border-nord-10/20 dark:border-nord-10/30">
               <motion.div
                 initial={{ opacity: 0, x: -10 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ duration: 0.2, delay: 0.1 }}
-                className="prose dark:prose-dark max-w-none text-nord-3 dark:text-nord-4 bg-nord-6/50 dark:bg-nord-1/50 rounded-lg p-4"
+                className="prose prose-sm sm:prose dark:prose-dark max-w-none text-nord-3 dark:text-nord-4 bg-nord-6/50 dark:bg-nord-1/50 rounded-lg p-2 sm:p-4"
               >
                 <ReactMarkdown>{details}</ReactMarkdown>
               </motion.div>
@@ -1710,72 +1710,74 @@ ${rebuttal.response}`
                       </div>
                         </div>
                         <div className="flex items-center space-x-2">
-                        <div className="relative inline-block export-menu-container">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setOpenExportMenu(openExportMenu === analysis.id ? null : analysis.id);
-                            }}
-                              className="px-4 py-1.5 rounded-md text-sm bg-nord-10/10 text-nord-10 hover:bg-nord-10/20 font-medium transition-colors flex items-center space-x-1"
-                            title="Export options"
-                          >
-                              <span>Export</span>
+                          <div className="relative inline-block export-menu-container">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setOpenExportMenu(openExportMenu === analysis.id ? null : analysis.id);
+                              }}
+                              className="p-2 rounded-md text-sm bg-nord-10/10 text-nord-10 hover:bg-nord-10/20 font-medium transition-colors flex items-center space-x-1"
+                              title="Export options"
+                            >
                               <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-                                <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+                                <path d="M10 3a1 1 0 01.707.293l3 3a1 1 0 01-1.414 1.414L11 6.414V13a1 1 0 11-2 0V6.414L7.707 7.707a1 1 0 01-1.414-1.414l3-3A1 1 0 0110 3zm-3.707 9.293a1 1 0 011.414 0L10 14.586l2.293-2.293a1 1 0 011.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" />
                               </svg>
-                          </button>
-                          <AnimatePresence>
-                            {openExportMenu === analysis.id && (
-                              <motion.div
-                                initial={{ opacity: 0, y: -5 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                exit={{ opacity: 0, y: -5 }}
+                              <span className="hidden sm:inline">Export</span>
+                            </button>
+                            <AnimatePresence>
+                              {openExportMenu === analysis.id && (
+                                <motion.div
+                                  initial={{ opacity: 0, y: -5 }}
+                                  animate={{ opacity: 1, y: 0 }}
+                                  exit={{ opacity: 0, y: -5 }}
                                   className="absolute right-0 mt-1 w-36 bg-nord-6 dark:bg-nord-1 rounded-lg shadow-lg border border-nord-4/20 z-50 overflow-hidden"
-                              >
-                                <button
-                                  onClick={() => {
-                                    downloadMarkdown(analysis);
-                                    setOpenExportMenu(null);
-                                  }}
-                                    className="w-full px-4 py-2 text-left text-sm hover:bg-nord-5 dark:hover:bg-nord-2 text-nord-0 dark:text-nord-6 flex items-center space-x-2"
                                 >
+                                  <button
+                                    onClick={() => {
+                                      downloadMarkdown(analysis);
+                                      setOpenExportMenu(null);
+                                    }}
+                                    className="w-full px-4 py-2 text-left text-sm hover:bg-nord-5 dark:hover:bg-nord-2 text-nord-0 dark:text-nord-6 flex items-center space-x-2"
+                                  >
                                     <span className="text-nord-10">📝</span>
                                     <span>Markdown</span>
-                                </button>
-                                <button
-                                  onClick={() => {
-                                    downloadPdf(analysis);
-                                    setOpenExportMenu(null);
-                                  }}
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      downloadPdf(analysis);
+                                      setOpenExportMenu(null);
+                                    }}
                                     className="w-full px-4 py-2 text-left text-sm hover:bg-nord-5 dark:hover:bg-nord-2 text-nord-0 dark:text-nord-6 border-t border-nord-4/20 flex items-center space-x-2"
-                                >
+                                  >
                                     <span className="text-nord-10">📄</span>
                                     <span>PDF</span>
-                                </button>
-                              </motion.div>
-                            )}
-                          </AnimatePresence>
-                        </div>
-                        <button
-                          onClick={() => loadAnalysis(analysis)}
-                            className="px-4 py-1.5 rounded-md text-sm bg-nord-10 text-nord-6 hover:bg-nord-9 font-medium transition-colors flex items-center space-x-1"
-                        >
+                                  </button>
+                                </motion.div>
+                              )}
+                            </AnimatePresence>
+                          </div>
+                          <button
+                            onClick={() => loadAnalysis(analysis)}
+                            className="p-2 rounded-md text-sm bg-nord-10 text-nord-6 hover:bg-nord-9 font-medium transition-colors flex items-center space-x-1"
+                            title="Load analysis"
+                          >
                             <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-                              <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clipRule="evenodd" />
+                              <path d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" />
                             </svg>
-                            <span>Load</span>
-                        </button>
-                        <button
-                          onClick={() => setDeletingId(analysis.id)}
-                            className="px-4 py-1.5 rounded-md text-sm bg-nord-11/10 text-nord-11 hover:bg-nord-11/20 font-medium transition-colors flex items-center space-x-1"
-                        >
+                            <span className="hidden sm:inline">Load</span>
+                          </button>
+                          <button
+                            onClick={() => setDeletingId(analysis.id)}
+                            className="p-2 rounded-md text-sm bg-nord-11/10 text-nord-11 hover:bg-nord-11/20 font-medium transition-colors flex items-center space-x-1"
+                            title="Delete analysis"
+                          >
                             <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
                               <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
                             </svg>
-                            <span>Delete</span>
-                        </button>
+                            <span className="hidden sm:inline">Delete</span>
+                          </button>
+                        </div>
                       </div>
-                    </div>
 
                       {/* Tags Section */}
                       <div className="flex flex-wrap items-center gap-2">
@@ -2088,22 +2090,22 @@ ${rebuttal.response}`
                       initial={{ opacity: 0, y: 20 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ duration: 0.3, delay: 0.6 + index * 0.1 }}
-                      className="p-4 bg-nord-6 dark:bg-nord-2 rounded-lg border border-nord-4 dark:border-nord-3 hover:border-nord-4/80 dark:hover:border-nord-3/80 hover-border"
+                      className="p-3 sm:p-4 bg-nord-6 dark:bg-nord-2 rounded-lg border border-nord-4 dark:border-nord-3 hover:border-nord-4/80 dark:hover:border-nord-3/80 hover-border"
                     >
-                      <div className="flex items-start space-x-4">
-                        <div className="flex-shrink-0 w-8 h-8 rounded-full bg-nord-10/20 dark:bg-nord-10/30 flex items-center justify-center mt-0.5">
+                      <div className="flex items-start space-x-2 sm:space-x-4">
+                        <div className="flex-shrink-0 w-6 h-6 sm:w-8 sm:h-8 rounded-full bg-nord-10/20 dark:bg-nord-10/30 flex items-center justify-center mt-0.5">
                           <span className="text-nord-10 dark:text-nord-8 font-semibold leading-none">~</span>
                         </div>
-                        <div className="flex-1">
-                          <h4 className="text-nord-0 dark:text-nord-6 font-semibold">
+                        <div className="flex-1 min-w-0">
+                          <h4 className="text-sm sm:text-base text-nord-0 dark:text-nord-6 font-semibold">
                             {pattern.pattern}
                           </h4>
                           <div className="mt-2 space-y-2">
-                            <div className="prose dark:prose-dark max-w-none">
+                            <div className="prose prose-sm sm:prose dark:prose-dark max-w-none">
                               <ReactMarkdown>{`**Impact:** ${pattern.impact}`}</ReactMarkdown>
                             </div>
                             <div>
-                              <p className="text-nord-10 dark:text-nord-8 font-medium">Solution:</p>
+                              <p className="text-sm sm:text-base text-nord-10 dark:text-nord-8 font-medium">Solution:</p>
                               {pattern.solution.split('||').filter(step => step.trim()).map((step, stepIndex) => (
                                 <ExpandableStep key={stepIndex} step={step} index={stepIndex} />
                               ))}
@@ -2124,23 +2126,23 @@ ${rebuttal.response}`
                       initial={{ opacity: 0, y: 20 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ duration: 0.3, delay: 0.9 + index * 0.1 }}
-                      className="p-4 bg-nord-6 dark:bg-nord-2 rounded-lg border border-nord-4 dark:border-nord-3 hover:border-nord-4/80 dark:hover:border-nord-3/80 hover-border"
+                      className="p-3 sm:p-4 bg-nord-6 dark:bg-nord-2 rounded-lg border border-nord-4 dark:border-nord-3 hover:border-nord-4/80 dark:hover:border-nord-3/80 hover-border"
                     >
-                      <div className="flex items-start space-x-4">
-                        <div className="flex-shrink-0 w-8 h-8 rounded-full bg-nord-10/20 dark:bg-nord-10/30 flex items-center justify-center mt-0.5">
+                      <div className="flex items-start space-x-2 sm:space-x-4">
+                        <div className="flex-shrink-0 w-6 h-6 sm:w-8 sm:h-8 rounded-full bg-nord-10/20 dark:bg-nord-10/30 flex items-center justify-center mt-0.5">
                           <span className="text-nord-10 dark:text-nord-8 font-semibold leading-none">✦</span>
                         </div>
-                        <div className="flex-1">
-                          <h4 className="text-nord-0 dark:text-nord-6 font-semibold">
+                        <div className="flex-1 min-w-0">
+                          <h4 className="text-sm sm:text-base text-nord-0 dark:text-nord-6 font-semibold">
                             {strategy.strategy}
                           </h4>
                           <div className="mt-2">
-                            <div className="prose dark:prose-dark max-w-none">
+                            <div className="prose prose-sm sm:prose dark:prose-dark max-w-none">
                               <ReactMarkdown>{strategy.explanation}</ReactMarkdown>
                             </div>
                           </div>
                           <div className="mt-2 space-y-2">
-                            <p className="text-nord-10 dark:text-nord-8 font-medium">How to:</p>
+                            <p className="text-sm sm:text-base text-nord-10 dark:text-nord-8 font-medium">How to:</p>
                             {strategy.howTo.split('||').filter(step => step.trim()).map((step, stepIndex) => (
                               <ExpandableStep key={stepIndex} step={step} index={stepIndex} />
                             ))}
